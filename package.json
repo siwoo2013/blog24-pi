@@ -1,8 +1,8 @@
 {
   "name": "blog24-pi",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "Blog24 Pi Browser shopping mall - Pi Testnet starter",
+  "description": "Blog24 Pi Browser shopping mall - Pi Testnet payment enabled",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
