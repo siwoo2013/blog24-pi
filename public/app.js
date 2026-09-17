@@ -189,13 +189,15 @@ function confirmOrderBeforePi(shipping){
  return new Promise(resolve=>{const m=document.createElement("div");m.className="shipping-modal";const total=cart.reduce((a,p)=>a+Number(p.price)*(p.qty||1),0);const rows=cart.map(p=>`<div class="confirm-item"><div><b>${p.name}</b><small>옵션: ${p.option||"기본"} · 수량 ${p.qty||1}</small></div><b>${(Number(p.price)*(p.qty||1)).toFixed(2)} π</b></div>`).join("");m.innerHTML=`<div class="shipping-box final-confirm"><h2>최종 주문 확인</h2><div class="confirm-section"><h3>주문상품</h3>${rows}</div><div class="confirm-section"><h3>주문자</h3><p>${shipping.ordererName} · ${shipping.ordererPhone}</p></div><div class="confirm-section"><h3>배송정보</h3><p>${shipping.recipientName} · ${shipping.phone}</p><p>${shipping.postalCode||""} ${shipping.address} ${shipping.addressDetail||""}</p><p>${shipping.deliveryMemo||""}</p></div><div class="confirm-total"><span>결제 예정금액</span><b>${total.toFixed(2)} π</b></div><div class="shipping-actions"><button id="confirmBack">이전</button><button id="confirmPi">Pi 결제 진행</button></div></div>`;document.body.appendChild(m);m.querySelector("#confirmBack").onclick=()=>{m.remove();resolve(false)};m.querySelector("#confirmPi").onclick=()=>{m.remove();resolve(true)};});
 }
 
-async function checkout(){
+async function checkout(skipCartReview=false){
   if (!cart.length || paymentInProgress) return;
   if (!currentUser) { toast("먼저 Pi 로그인을 해주세요."); return; }
   if (!piReady) { toast("Pi Sandbox 연결 상태를 확인해주세요."); return; }
 
-  const proceed = await openCartReview();
-  if (!proceed || !cart.length) return;
+  if(!skipCartReview){
+    const proceed = await openCartReview();
+    if (!proceed || !cart.length) return;
+  }
   const shipping = await askShippingInfo();
   if (!shipping) return;
   const confirmed = await confirmOrderBeforePi(shipping);
@@ -337,14 +339,23 @@ window.openProductDetail=openProductDetail;
 function updateTopCart(){const e=document.getElementById("topCartCount");if(e)e.textContent=cart.reduce((a,p)=>a+(p.qty||1),0);}
 const _oldUpdateCart=updateCart; updateCart=function(){_oldUpdateCart();updateTopCart();};
 const topCartBtn=document.getElementById("topCartBtn");
-if(topCartBtn)topCartBtn.addEventListener("click",()=>{if(cart.length)openCartReview();else toast("장바구니가 비어 있습니다.");});
+if(topCartBtn)topCartBtn.addEventListener("click",async()=>{
+ if(!cart.length){toast("장바구니가 비어 있습니다.");return;}
+ const proceed=await openCartReview();
+ if(proceed && cart.length) checkout(true);
+});
 updateTopCart();
 
-// V164_CART_ORDER_DELEGATE
-document.addEventListener("click",function(e){
- const b=e.target.closest("#cartCheckout,#cartOrderBtn,[data-cart-checkout]");
- if(!b)return;
- e.preventDefault();e.stopPropagation();
- const modal=b.closest(".shipping-modal"); if(modal)modal.remove();
- setTimeout(()=>checkout(),0);
-});
+
+// V1.6.5 Chrome visible viewport correction
+(function(){
+ const ua=navigator.userAgent||"";
+ const isKakao=/KAKAOTALK/i.test(ua), isPiBrowser=/PiBrowser/i.test(ua), isChrome=/Chrome|CriOS/i.test(ua);
+ if(isChrome && !isKakao && !isPiBrowser) document.documentElement.classList.add("external-chrome");
+ function syncVisibleViewport(){
+   const vv=window.visualViewport, h=vv?vv.height:window.innerHeight;
+   document.documentElement.style.setProperty("--visible-vh",`${h}px`);
+ }
+ syncVisibleViewport(); window.addEventListener("resize",syncVisibleViewport,{passive:true});
+ if(window.visualViewport){visualViewport.addEventListener("resize",syncVisibleViewport,{passive:true});visualViewport.addEventListener("scroll",syncVisibleViewport,{passive:true});}
+})();

@@ -154,3 +154,13 @@ main{max-width:980px;margin:auto}
  .shipping-modal{height:100vh!important;max-height:100vh!important}
  .shipping-box{max-height:calc(100vh - 40px)!important}
 }
+
+/* V1.6.5 */
+:root{--visible-vh:100dvh}
+.shipping-modal{height:var(--visible-vh)!important;max-height:var(--visible-vh)!important}
+.shipping-box{max-height:calc(var(--visible-vh) - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important}
+.external-chrome .cartbar{bottom:calc(74px + env(safe-area-inset-bottom))!important}
+.external-chrome body{padding-bottom:210px!important}
+.external-chrome .shipping-modal{padding-bottom:calc(74px + env(safe-area-inset-bottom))!important}
+.external-chrome .shipping-box{max-height:calc(var(--visible-vh) - 92px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important}
+@media(max-width:520px){.cart-review{padding-bottom:calc(82px + env(safe-area-inset-bottom))!important}}
