@@ -6,4 +6,30 @@ async function load(){sessionStorage.setItem('blog24_admin_key',key.value);try{c
 async function prep(id){await api('/api/admin/orders/'+encodeURIComponent(id)+'/preparing',{method:'POST'});load()}
 async function ship(id){const courier=prompt('택배사','CJ대한통운');if(courier===null)return;const trackingNumber=prompt('송장번호');if(!trackingNumber)return;await api('/api/admin/orders/'+encodeURIComponent(id)+'/ship',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({courier,trackingNumber})});load()}
 document.querySelector('#load').onclick=load;
-</script></body></html>
+</script>
+<section class="admin-v16">
+<h2>주문 상태별 조회</h2>
+<div class="admin-tabs">
+<button data-st="ALL">전체</button><button data-st="PAID">결제완료</button><button data-st="PREPARING">배송준비</button>
+<button data-st="SHIPPED">배송중</button><button data-st="DELIVERED">배송완료</button><button data-st="CONFIRMED">구매확정</button>
+<button data-st="REFUNDED">환불완료</button>
+</div>
+<div class="admin-export"><button id="exportCurrent">현재 목록 Excel(CSV)</button><button id="exportAll">전체 주문 Excel(CSV)</button></div>
+<div id="v16Orders"></div>
+</section>
+<script>
+let v16Status="ALL";
+function getAdminKey(){return localStorage.getItem("blog24AdminKey")||prompt("ADMIN_KEY를 입력하세요")||""}
+async function loadV16(st="ALL"){v16Status=st;const key=getAdminKey();if(key)localStorage.setItem("blog24AdminKey",key);
+ const r=await fetch("/api/admin/orders?status="+encodeURIComponent(st),{headers:{"x-admin-key":key}});const d=await r.json();
+ if(!r.ok){document.getElementById("v16Orders").textContent=d.error||"조회 실패";return}
+ const labels={PAID:"결제완료",PREPARING:"배송준비",SHIPPED:"배송중",DELIVERED:"배송완료",CONFIRMED:"구매확정",REFUNDED:"환불완료"};
+ document.getElementById("v16Orders").innerHTML=d.orders.map(o=>`<div class="admin-order"><b>${o.order_id}</b> · ${labels[o.order_status]||o.order_status}<br>${o.recipient_name||""} / ${o.phone||""}<br>${o.paid_total} π ${o.tracking_number?` · ${o.courier||""} ${o.tracking_number}`:""}</div>`).join("")||"<p>해당 주문이 없습니다.</p>";
+}
+document.querySelectorAll(".admin-tabs button").forEach(b=>b.onclick=()=>loadV16(b.dataset.st));
+function exportOrders(st){location.href="/api/admin/orders-export.csv?status="+encodeURIComponent(st)}
+document.getElementById("exportCurrent").onclick=()=>exportOrders(v16Status);
+document.getElementById("exportAll").onclick=()=>exportOrders("ALL");
+loadV16();
+</script>
+</body></html>

@@ -49,6 +49,25 @@ async function initDb(){
  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS orderer_phone TEXT");
  console.log("DB tables ready");
 }
+
+async function ensureV16Schema(){
+  if(!pool) return;
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS auto_deliver_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS auto_confirm_at TIMESTAMPTZ`);
+}
+async function applyAutomaticOrderStatuses(){
+  if(!pool) return;
+  await pool.query(`UPDATE orders
+    SET order_status='DELIVERED', delivered_at=COALESCE(delivered_at,NOW()),
+        auto_confirm_at=COALESCE(auto_confirm_at,NOW()+INTERVAL '7 days')
+    WHERE order_status='SHIPPED' AND shipped_at IS NOT NULL
+      AND shipped_at <= NOW()-INTERVAL '3 days'`);
+  await pool.query(`UPDATE orders
+    SET order_status='CONFIRMED', confirmed_at=COALESCE(confirmed_at,NOW())
+    WHERE order_status='DELIVERED' AND delivered_at IS NOT NULL
+      AND delivered_at <= NOW()-INTERVAL '7 days'`);
+}
+
 function needKey(req,res,next){if(!PI_API_KEY)return res.status(500).json({ok:false,error:"PI_API_KEY missing"});next()}
 function needDb(req,res,next){if(!pool)return res.status(503).json({ok:false,error:"DATABASE_URL missing"});next()}
 function needAdmin(req,res,next){if(!ADMIN_KEY)return res.status(503).json({ok:false,error:"ADMIN_KEY missing"});const key=req.get("x-admin-key")||req.query.adminKey;if(key!==ADMIN_KEY)return res.status(401).json({ok:false,error:"관리자 인증 실패"});next()}
@@ -121,13 +140,21 @@ app.get("/api/orders/:orderId",needDb,async(req,res)=>{
  }catch(e){res.status(500).json({ok:false,error:e.message})}
 });
 
-app.get("/api/admin/orders",needDb,needAdmin,async(req,res)=>{const r=await pool.query("SELECT * FROM orders ORDER BY ordered_at DESC LIMIT 500");res.json({ok:true,orders:r.rows})});
-app.post("/api/admin/orders/:orderId/preparing",needDb,needAdmin,async(req,res)=>{
- await pool.query("UPDATE orders SET order_status='PREPARING',preparing_at=NOW() WHERE order_id=$1",[req.params.orderId]);res.json({ok:true});
+app.get("/api/admin/orders",needDb,async(req,res)=>{
+  await applyAutomaticOrderStatuses();
+  const status=(req.query.status||"ALL").toUpperCase();
+  const allowed=["ALL","PAID","PREPARING","SHIPPED","DELIVERED","CONFIRMED","CANCELLED","REFUND_REQUESTED","REFUNDED"];
+  if(!allowed.includes(status)) return res.status(400).json({ok:false,error:"잘못된 상태"});
+  const sql=status==="ALL"
+    ? "SELECT * FROM orders ORDER BY ordered_at DESC LIMIT 1000"
+    : "SELECT * FROM orders WHERE order_status=$1 ORDER BY ordered_at DESC LIMIT 1000";
+  const r=await pool.query(sql,status==="ALL"?[]:[status]);
+  const counts=(await pool.query(`SELECT order_status,COUNT(*)::int count FROM orders GROUP BY order_status`)).rows;
+  res.json({ok:true,orders:r.rows,counts});
 });
 app.post("/api/admin/orders/:orderId/ship",needDb,needAdmin,async(req,res)=>{
  const {courier,trackingNumber}=req.body||{};if(!trackingNumber)return res.status(400).json({ok:false,error:"송장번호 필요"});
- await pool.query("UPDATE orders SET order_status='SHIPPED',courier=$1,tracking_number=$2,shipped_at=NOW() WHERE order_id=$3",[courier||null,trackingNumber,req.params.orderId]);res.json({ok:true});
+ await pool.query("UPDATE orders SET order_status='SHIPPED',courier=$1,tracking_number=$2,shipped_at=NOW(),auto_deliver_at=NOW()+INTERVAL '3 days' WHERE order_id=$3",[courier||null,trackingNumber,req.params.orderId]);res.json({ok:true});
 });
 app.post("/api/refunds/request",needDb,async(req,res)=>{
  try{
@@ -158,5 +185,36 @@ app.get("/api/admin/stats",needDb,needAdmin,async(req,res)=>{
  res.json({ok:true,...s,refunded,net_sales:Number(s.gross_sales)-refunded});
 });
 app.get("/admin",(req,res)=>res.sendFile(path.join(__dirname,"public","admin.html")));
+
+app.post("/api/orders/:orderId/confirm",needDb,async(req,res)=>{
+  const {username}=req.body||{};
+  const q=await pool.query("SELECT * FROM orders WHERE order_id=$1",[req.params.orderId]);
+  if(!q.rows.length) return res.status(404).json({ok:false,error:"주문 없음"});
+  const o=q.rows[0];
+  if(username && o.pi_username && username!==o.pi_username) return res.status(403).json({ok:false,error:"주문자 불일치"});
+  if(o.order_status!=="DELIVERED") return res.status(409).json({ok:false,error:"배송완료 주문만 구매확정할 수 있습니다."});
+  await pool.query("UPDATE orders SET order_status='CONFIRMED',confirmed_at=NOW() WHERE order_id=$1",[req.params.orderId]);
+  res.json({ok:true});
+});
+
+app.get("/api/admin/orders-export.csv",needDb,async(req,res)=>{
+  await applyAutomaticOrderStatuses();
+  const status=(req.query.status||"ALL").toUpperCase();
+  const args=status==="ALL"?[]:[status];
+  const where=status==="ALL"?"":"WHERE o.order_status=$1";
+  const q=await pool.query(`SELECT o.order_id,o.ordered_at,o.pi_username,o.recipient_name,o.phone,
+    o.postal_code,o.address,o.address_detail,o.item_total,o.shipping_total,o.paid_total,o.order_status,
+    o.courier,o.tracking_number,o.payment_id,o.txid,
+    COALESCE(string_agg(oi.product_name||' x'||oi.quantity, ', '),'') products
+    FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.order_id
+    ${where} GROUP BY o.id ORDER BY o.ordered_at DESC`,args);
+  const heads=["주문번호","주문일시","Pi사용자","수령인","전화번호","우편번호","주소","상세주소","상품","상품금액","배송비","결제금액","상태","택배사","송장번호","Payment ID","TXID"];
+  const esc=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+  const rows=q.rows.map(o=>[o.order_id,o.ordered_at,o.pi_username,o.recipient_name,o.phone,o.postal_code,o.address,o.address_detail,o.products,o.item_total,o.shipping_total,o.paid_total,o.order_status,o.courier,o.tracking_number,o.payment_id,o.txid].map(esc).join(","));
+  res.setHeader("Content-Type","text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition",`attachment; filename="blog24-orders-${status}.csv"`);
+  res.send("\\uFEFF"+heads.map(esc).join(",")+"\\n"+rows.join("\\n"));
+});
+
 app.get("*",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")));
-app.listen(PORT,"0.0.0.0",async()=>{console.log(`Blog24 running on port ${PORT}`);console.log(`Pi API configured: ${!!PI_API_KEY}`);console.log(`Database configured: ${!!pool}`);console.log(`Admin configured: ${!!ADMIN_KEY}`);try{await initDb()}catch(e){console.error("DB init failed:",e)}});
+app.listen(PORT,"0.0.0.0",async()=>{console.log(`Blog24 running on port ${PORT}`);console.log(`Pi API configured: ${!!PI_API_KEY}`);console.log(`Database configured: ${!!pool}`);console.log(`Admin configured: ${!!ADMIN_KEY}`);try{await initDb();await ensureV16Schema();await applyAutomaticOrderStatuses()}catch(e){console.error("DB init failed:",e)}});

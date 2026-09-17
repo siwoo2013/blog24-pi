@@ -7,6 +7,14 @@ const products = [
   { id: 6, name: "테스트 상품", price: 0.1, icon: "🧪", desc: "Pi Testnet 결제 테스트용", detail: "Pi Testnet 결제 흐름을 빠르게 확인하기 위한 테스트 상품입니다.", options: ["기본"] }
 ];
 
+
+const V16_PRODUCT_MEDIA = {
+  1:{images:["/images/sample-1.svg","/images/sample-2.svg","/images/sample-3.svg"],youtube:"https://www.youtube.com/embed/dQw4w9WgXcQ",options:["화이트","블랙"]},
+  2:{images:["/images/sample-2.svg","/images/sample-3.svg","/images/sample-1.svg"],youtube:"",options:["기본"]},
+  3:{images:["/images/sample-3.svg","/images/sample-1.svg","/images/sample-2.svg"],youtube:"",options:["기본"]}
+};
+products.forEach(p=>Object.assign(p,V16_PRODUCT_MEDIA[p.id]||{images:["/images/sample-1.svg","/images/sample-2.svg","/images/sample-3.svg"],youtube:"",options:["기본"]}));
+
 let cart = [];
 let piReady = false;
 let currentUser = null;
@@ -311,3 +319,55 @@ renderProducts();
 initPi();
 const sharedProductId=Number(new URLSearchParams(location.search).get("product"));
 if(sharedProductId && products.some(p=>p.id===sharedProductId)) setTimeout(()=>openProductDetail(sharedProductId),250);
+
+
+function openProductDetail(id){
+ const p=products.find(x=>x.id===id); if(!p)return;
+ const media=p.images||[]; const m=document.createElement("div");m.className="shipping-modal";
+ m.innerHTML=`<div class="shipping-box product-detail"><button class="detail-close">✕</button>
+ <img class="detail-main" src="${media[0]||""}" alt="${p.name}">
+ <div class="detail-thumbs">${media.slice(0,3).map((x,i)=>`<img src="${x}" data-src="${x}" alt="상품 이미지 ${i+1}">`).join("")}</div>
+ <h2>${p.name}</h2><p>${p.desc||""}</p><b class="detail-price">${Number(p.price).toFixed(2)} π</b>
+ <label>옵션<select id="detailOption">${(p.options||["기본"]).map(x=>`<option>${x}</option>`).join("")}</select></label>
+ <label>수량<input id="detailQty" type="number" min="1" value="1"></label>
+ ${p.youtube?`<div class="video-wrap"><iframe src="${p.youtube}" title="상품 영상" allowfullscreen></iframe></div>`:""}
+ <div class="detail-actions"><button id="detailShare">공유하기</button><button id="detailAdd">장바구니 담기</button></div></div>`;
+ document.body.appendChild(m);
+ m.querySelector(".detail-close").onclick=()=>m.remove();
+ m.querySelectorAll(".detail-thumbs img").forEach(x=>x.onclick=()=>m.querySelector(".detail-main").src=x.dataset.src);
+ m.querySelector("#detailShare").onclick=async()=>{const data={title:p.name,text:`${p.name} ${Number(p.price).toFixed(2)} π`,url:location.href};
+  try{if(navigator.share)await navigator.share(data);else{await navigator.clipboard.writeText(location.href);toast("상품 링크를 복사했습니다.");}}catch(e){}};
+ m.querySelector("#detailAdd").onclick=()=>{const q=Math.max(1,parseInt(m.querySelector("#detailQty").value||"1"));const opt=m.querySelector("#detailOption").value;
+  const f=cart.find(x=>x.id===p.id&&x.option===opt);if(f)f.qty=(f.qty||1)+q;else cart.push({...p,option:opt,qty:q});updateCart();m.remove();toast(`${p.name} 장바구니에 담음`);};
+}
+window.openProductDetail=openProductDetail;
+
+function ensureV16Header(){
+ const h=document.querySelector("header")||document.body;
+ const box=document.createElement("div");box.className="v16-tools";
+ box.innerHTML=`<button id="externalOpenBtn">🌐 Google로 열기</button><button id="installBtn">📲 홈 화면 바로가기</button><button id="topCartBtn">🛒 장바구니 <b id="topCartCount">0</b></button>`;
+ h.appendChild(box);
+ document.getElementById("topCartBtn").onclick=()=>{if(cart.length)openCartReview();else toast("장바구니가 비어 있습니다.");};
+ document.getElementById("externalOpenBtn").onclick=()=>openExternalBrowser();
+ document.getElementById("installBtn").onclick=()=>installShortcut();
+ updateTopCart();
+}
+function updateTopCart(){const e=document.getElementById("topCartCount");if(e)e.textContent=cart.reduce((a,p)=>a+(p.qty||1),0);}
+const _oldUpdateCart=updateCart; updateCart=function(){_oldUpdateCart();updateTopCart();};
+
+function openExternalBrowser(){
+ const u=location.href.replace(/^https?:\/\//,"");
+ if(/Android/i.test(navigator.userAgent)){
+   location.href=`intent://${u}#Intent;scheme=https;package=com.android.chrome;end`;
+   setTimeout(()=>toast("열리지 않으면 주소를 복사해 Chrome에서 열어주세요."),1200);
+ } else window.open(location.href,"_blank");
+}
+let deferredInstallPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e;});
+async function installShortcut(){
+ if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;}
+ else toast("브라우저 메뉴에서 '홈 화면에 추가'를 선택해주세요.");
+}
+
+
+window.addEventListener("DOMContentLoaded",()=>{try{ensureV16Header()}catch(e){console.error(e)}});
