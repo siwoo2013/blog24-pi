@@ -10,20 +10,18 @@ const products = [
 let cart = [];
 let piReady = false;
 let currentUser = null;
-let paymentInProgress = false;
 
 const grid = document.getElementById("productGrid");
 const cartBar = document.getElementById("cartBar");
 const cartCount = document.getElementById("cartCount");
 const cartTotal = document.getElementById("cartTotal");
 const loginBtn = document.getElementById("loginBtn");
-const checkoutBtn = document.getElementById("checkoutBtn");
 
 function toast(message){
   const el = document.getElementById("toast");
   el.textContent = message;
   el.classList.add("show");
-  setTimeout(() => el.classList.remove("show"), 3200);
+  setTimeout(() => el.classList.remove("show"), 2400);
 }
 
 function renderProducts(){
@@ -62,11 +60,11 @@ async function initPi(){
     return;
   }
   try {
+    // Testnet 개발 단계: sandbox true
     Pi.init({ version: "2.0", sandbox: true });
     piReady = true;
   } catch (e) {
     console.error(e);
-    toast("Pi SDK 초기화에 실패했습니다.");
   }
 }
 
@@ -87,128 +85,42 @@ async function loginPi(){
   }
 }
 
-async function postJSON(url, body = {}) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.ok === false) {
-    throw new Error(data.error || `HTTP ${response.status}`);
-  }
-  return data;
-}
-
-async function approvePayment(paymentId) {
-  return postJSON(`/api/pi/payments/${encodeURIComponent(paymentId)}/approve`);
-}
-
-async function completePayment(paymentId, txid) {
-  return postJSON(`/api/pi/payments/${encodeURIComponent(paymentId)}/complete`, { txid });
-}
-
-async function onIncompletePaymentFound(payment){
+function onIncompletePaymentFound(payment){
   console.log("Incomplete Pi payment:", payment);
-  try {
-    if (payment?.transaction?.txid && payment?.status?.developer_completed !== true) {
-      toast("이전 미완료 결제를 확인하고 있습니다...");
-      await completePayment(payment.identifier, payment.transaction.txid);
-      toast("이전 Testnet 결제를 정상 완료했습니다.");
-    }
-  } catch (e) {
-    console.error("Incomplete payment completion failed:", e);
-    toast("이전 미완료 결제 확인에 실패했습니다.");
-  }
+  // 다음 버전에서 서버 승인/완료 API와 연결
+}
+
+
+function askShippingInfo(){
+ return new Promise(resolve=>{
+  const m=document.createElement("div");m.className="shipping-modal";
+  m.innerHTML=`<div class="shipping-box"><h2>배송정보</h2>
+  <input id="sn" placeholder="받는 분 이름"><input id="sp" placeholder="휴대폰 번호">
+  <input id="sz" placeholder="우편번호"><input id="sa" placeholder="배송 주소">
+  <input id="sd" placeholder="상세 주소"><input id="sm" placeholder="배송 메모 (선택)">
+  <div class="shipping-actions"><button id="sc">취소</button><button id="so">주문 확인 및 Pi 결제</button></div></div>`;
+  document.body.appendChild(m);document.getElementById("sc").onclick=()=>{m.remove();resolve(null)};
+  document.getElementById("so").onclick=()=>{const v={recipientName:sn.value.trim(),phone:sp.value.trim(),postalCode:sz.value.trim(),address:sa.value.trim(),addressDetail:sd.value.trim(),deliveryMemo:sm.value.trim()};
+   if(!v.recipientName||!v.phone||!v.address){toast("받는 분, 휴대폰, 주소는 필수입니다.");return}m.remove();resolve(v)};
+ });
 }
 
 async function checkout(){
-  if (!cart.length || paymentInProgress) return;
+  if (!cart.length) return;
   if (!currentUser) {
     toast("먼저 Pi 로그인을 해주세요.");
     return;
   }
-  if (!piReady) {
-    toast("Pi Sandbox 연결 상태를 확인해주세요.");
-    return;
-  }
-
-  const items = cart.map(p => ({ id: p.id, name: p.name, price: p.price }));
-  const amount = Number(cart.reduce((sum, p) => sum + p.price, 0).toFixed(2));
-  const orderId = `BLOG24-${Date.now()}`;
-
-  paymentInProgress = true;
-  checkoutBtn.disabled = true;
-  checkoutBtn.textContent = "결제 진행중";
-
-  try {
-    Pi.createPayment({
-      amount,
-      memo: `Blog24 상품 ${items.length}개 결제`,
-      metadata: {
-        orderId,
-        itemIds: items.map(item => item.id),
-        itemNames: items.map(item => item.name)
-      }
-    }, {
-      onReadyForServerApproval: async function(paymentId) {
-        try {
-          await approvePayment(paymentId);
-          toast("결제 승인 완료 · Pi Wallet에서 결제를 진행하세요.");
-        } catch (e) {
-          console.error("Approval failed:", e);
-          toast(`서버 결제 승인 실패: ${e.message}`);
-          throw e;
-        }
-      },
-
-      onReadyForServerCompletion: async function(paymentId, txid) {
-        try {
-          await completePayment(paymentId, txid);
-          cart = [];
-          updateCart();
-          toast(`Testnet 결제 완료: ${amount.toFixed(2)} π`);
-        } catch (e) {
-          console.error("Completion failed:", e);
-          toast(`결제 완료 확인 실패: ${e.message}`);
-          throw e;
-        } finally {
-          paymentInProgress = false;
-          checkoutBtn.disabled = false;
-          checkoutBtn.textContent = "Pi로 결제";
-        }
-      },
-
-      onCancel: function(paymentId) {
-        console.log("Payment cancelled:", paymentId);
-        paymentInProgress = false;
-        checkoutBtn.disabled = false;
-        checkoutBtn.textContent = "Pi로 결제";
-        toast("결제가 취소되었습니다.");
-      },
-
-      onError: function(error, payment) {
-        console.error("Pi payment error:", error, payment);
-        paymentInProgress = false;
-        checkoutBtn.disabled = false;
-        checkoutBtn.textContent = "Pi로 결제";
-        toast(`Pi 결제 오류: ${error?.message || "알 수 없는 오류"}`);
-      }
-    });
-  } catch (e) {
-    console.error(e);
-    paymentInProgress = false;
-    checkoutBtn.disabled = false;
-    checkoutBtn.textContent = "Pi로 결제";
-    toast(`결제를 시작하지 못했습니다: ${e.message}`);
-  }
+  // V1.0에서는 실제 createPayment 호출 전 단계까지만 구성.
+  // 다음 단계에서 Render 서버의 Pi API 승인/완료 엔드포인트와 함께 활성화.
+  toast(`결제 준비 완료: ${cartTotal.textContent} π · 다음 단계에서 Testnet 결제 연결`);
 }
 
 document.getElementById("shopBtn").addEventListener("click", () => {
   document.getElementById("products").scrollIntoView({ behavior: "smooth" });
 });
 loginBtn.addEventListener("click", loginPi);
-checkoutBtn.addEventListener("click", checkout);
+document.getElementById("checkoutBtn").addEventListener("click", checkout);
 
 renderProducts();
 initPi();
