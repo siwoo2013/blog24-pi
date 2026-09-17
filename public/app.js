@@ -42,14 +42,17 @@ function renderProducts(){
 
 window.addToCart = function(id){
   const p = products.find(x => x.id === id);
-  cart.push(p);
+  const option = p.id === 1 ? "기본" : "기본";
+  const found = cart.find(x => x.id === id && x.option === option);
+  if (found) found.qty += 1;
+  else cart.push({...p, option, qty: 1});
   updateCart();
   toast(`${p.name} 장바구니에 담음`);
 }
 
 function updateCart(){
-  const total = cart.reduce((sum,p) => sum + p.price, 0);
-  cartCount.textContent = cart.length;
+  const total = cart.reduce((sum,p) => sum + (p.price * (p.qty || 1)), 0);
+  cartCount.textContent = cart.reduce((n,p)=>n+(p.qty||1),0);
   cartTotal.textContent = total.toFixed(2);
   cartBar.classList.toggle("hidden", cart.length === 0);
 }
@@ -91,13 +94,34 @@ function onIncompletePaymentFound(payment){
 }
 
 
+function openCartReview(){
+ return new Promise(resolve=>{
+  const m=document.createElement("div");m.className="shipping-modal";
+  const rows=cart.map((p,i)=>`<div class="cart-review-row">
+    <div><b>${p.name}</b><small>옵션: ${p.option||"기본"}</small></div>
+    <div class="qtyctl"><button data-i="${i}" data-d="-1">−</button><b>${p.qty||1}</b><button data-i="${i}" data-d="1">＋</button></div>
+    <div>${(p.price*(p.qty||1)).toFixed(2)} π</div>
+    <button class="delitem" data-del="${i}">삭제</button>
+  </div>`).join("");
+  const total=cart.reduce((a,p)=>a+p.price*(p.qty||1),0);
+  m.innerHTML=`<div class="shipping-box cart-review"><h2>장바구니</h2>${rows}
+   <div class="cart-review-total">상품 합계 <b>${total.toFixed(2)} π</b></div>
+   <div class="shipping-actions"><button id="ccancel">계속 쇼핑</button><button id="corder">주문하기</button></div></div>`;
+  document.body.appendChild(m);
+  m.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>{const i=+b.dataset.i,d=+b.dataset.d;cart[i].qty=Math.max(1,(cart[i].qty||1)+d);m.remove();updateCart();openCartReview().then(resolve)});
+  m.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{cart.splice(+b.dataset.del,1);m.remove();updateCart();if(cart.length)openCartReview().then(resolve);else resolve(false)});
+  m.querySelector("#ccancel").onclick=()=>{m.remove();resolve(false)};
+  m.querySelector("#corder").onclick=()=>{m.remove();resolve(true)};
+ });
+}
+
 function askShippingInfo(){
  return new Promise(resolve=>{
   const m=document.createElement("div");m.className="shipping-modal";
   m.innerHTML=`<div class="shipping-box"><h2>배송정보</h2>
-  <input id="sn" placeholder="받는 분 이름"><input id="sp" placeholder="휴대폰 번호">
-  <input id="sz" placeholder="우편번호"><input id="sa" placeholder="배송 주소">
-  <input id="sd" placeholder="상세 주소"><input id="sm" placeholder="배송 메모 (선택)">
+  <input id="sn" value="홍길동" placeholder="받는 분 이름"><input id="sp" value="010-0000-8282" placeholder="휴대폰 번호">
+  <input id="sz" value="08282" placeholder="우편번호"><input id="sa" value="서울시 관악구 주문로 8282" placeholder="배송 주소">
+  <input id="sd" value="8282호" placeholder="상세 주소"><input id="sm" value="테스트 주문입니다" placeholder="배송 메모 (선택)">
   <div class="shipping-actions"><button id="sc">취소</button><button id="so">주문 확인 및 Pi 결제</button></div></div>`;
   document.body.appendChild(m);document.getElementById("sc").onclick=()=>{m.remove();resolve(null)};
   document.getElementById("so").onclick=()=>{const v={recipientName:sn.value.trim(),phone:sp.value.trim(),postalCode:sz.value.trim(),address:sa.value.trim(),addressDetail:sd.value.trim(),deliveryMemo:sm.value.trim()};

@@ -50,3 +50,10 @@ main{max-width:980px;margin:auto}
 .shipping-box input{width:100%;padding:12px;margin:7px 0;border:1px solid #ddd;border-radius:10px;font-size:15px}
 .shipping-actions{display:flex;gap:8px;margin-top:12px}.shipping-actions button{flex:1;padding:12px;border:0;border-radius:10px;font-weight:800}.shipping-actions button:last-child{background:#6f3c91;color:#fff}
 @media(max-width:768px){.cartbar{bottom:calc(18px + env(safe-area-inset-bottom))}body{padding-bottom:140px}}
+
+.cart-review{max-height:80vh;overflow:auto}
+.cart-review-row{display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid #eee}
+.cart-review-row small{display:block;color:#777;margin-top:4px}
+.qtyctl{display:flex;align-items:center;gap:8px}.qtyctl button,.delitem{border:1px solid #ddd;background:#fff;border-radius:8px;padding:6px 9px}
+.cart-review-total{display:flex;justify-content:space-between;font-size:18px;padding:18px 0}
+@media(max-width:520px){.cart-review-row{grid-template-columns:1fr auto}.cart-review-row>div:nth-child(3){font-weight:800}.delitem{justify-self:end}}
