@@ -288,10 +288,49 @@ const sharedProductId=Number(new URLSearchParams(location.search).get("product")
 if(sharedProductId && products.some(p=>p.id===sharedProductId)) setTimeout(()=>openProductDetail(sharedProductId),250);
 
 
+function youtubeEmbedUrl(url){
+ if(!url)return "";
+ try{
+  if(url.includes("youtube.com/embed/")) return url;
+  const u=new URL(url);
+  let id="";
+  if(u.hostname.includes("youtu.be")) id=u.pathname.replace("/","");
+  else if(u.pathname.includes("/shorts/")) id=u.pathname.split("/shorts/")[1].split("/")[0];
+  else id=u.searchParams.get("v")||"";
+  return id?`https://www.youtube.com/embed/${id}`:"";
+ }catch(e){return ""}
+}
 function openProductDetail(id){
- const p=products.find(x=>x.id===id);if(!p)return;const media=(p.images||[]).slice(0,3),m=document.createElement("div");m.className="shipping-modal";
- m.innerHTML=`<div class="shipping-box product-detail"><button class="detail-close">✕</button>${media.length?`<img class="detail-main" src="${media[0]}" alt="${p.name}"><div class="detail-thumbs">${media.map((x,i)=>`<img src="${x}" data-src="${x}" alt="상품 이미지 ${i+1}">`).join("")}</div>`:`<div class="detail-icon">${p.icon||"🛍️"}</div>`}<h2>${p.name}</h2><p>${p.detail||p.desc||""}</p><b class="detail-price">${Number(p.price).toFixed(2)} π</b><label>옵션<select id="detailOption">${(p.options||["기본"]).map(x=>`<option value="${x}">${x}</option>`).join("")}</select></label><label>수량<div class="detail-qty"><button id="dqMinus">−</button><b id="dqValue">1</b><button id="dqPlus">＋</button></div></label>${p.youtube?`<div class="video-wrap"><iframe src="${p.youtube}" title="상품 영상" allowfullscreen></iframe></div>`:""}<div class="detail-actions"><button id="detailShare">상품 공유하기</button><button id="detailAdd">장바구니 담기</button></div></div>`;
- document.body.appendChild(m);let qty=1;m.querySelector(".detail-close").onclick=()=>m.remove();m.querySelectorAll(".detail-thumbs img").forEach(x=>x.onclick=()=>m.querySelector(".detail-main").src=x.dataset.src);m.querySelector("#dqMinus").onclick=()=>{qty=Math.max(1,qty-1);m.querySelector("#dqValue").textContent=qty};m.querySelector("#dqPlus").onclick=()=>{qty=Math.min(99,qty+1);m.querySelector("#dqValue").textContent=qty};m.querySelector("#detailShare").onclick=async()=>{const u=new URL(location.href);u.searchParams.set("product",p.id);const d={title:p.name,text:`${p.name} · ${Number(p.price).toFixed(2)} π`,url:u.toString()};try{if(navigator.share)await navigator.share(d);else{await navigator.clipboard.writeText(d.url);toast("상품 링크를 복사했습니다.");}}catch(e){}};m.querySelector("#detailAdd").onclick=()=>{const opt=m.querySelector("#detailOption").value,f=cart.find(x=>x.id===p.id&&(x.option||"기본")===opt);if(f)f.qty=(f.qty||1)+qty;else cart.push({...p,option:opt,qty});updateCart();m.remove();toast(`${p.name} 장바구니에 담음`);};
+ const p=products.find(x=>x.id===id);if(!p)return;
+ const images=(p.images||[]).slice(0,3);
+ const yt=youtubeEmbedUrl(p.youtube||"");
+ const thumbImages=yt?images.slice(0,2):images.slice(0,3);
+ const m=document.createElement("div");m.className="shipping-modal product-modal";
+ const first=thumbImages[0]||images[0]||"";
+ m.innerHTML=`<div class="shipping-box product-detail">
+ <button class="detail-close" aria-label="상품 상세 닫기">✕</button>
+ <div class="detail-media">
+   ${first?`<img class="detail-main" src="${first}" alt="${p.name}">`:`<div class="detail-icon">${p.icon||"🛍️"}</div>`}
+   <iframe class="detail-video-main hidden" title="${p.name} 상품 영상" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+ </div>
+ <div class="detail-thumbs">
+   ${thumbImages.map((x,i)=>`<button class="media-thumb image-thumb" data-src="${x}" aria-label="상품 이미지 ${i+1}"><img src="${x}" alt="상품 이미지 ${i+1}"></button>`).join("")}
+   ${yt?`<button class="media-thumb youtube-thumb" data-youtube="${yt}" aria-label="상품 영상"><span>▶</span><small>YouTube</small></button>`:""}
+ </div>
+ <h2>${p.name}</h2><p>${p.detail||p.desc||""}</p><b class="detail-price">${Number(p.price).toFixed(2)} π</b>
+ <label>옵션<select id="detailOption">${(p.options||["기본"]).map(x=>`<option value="${x}">${x}</option>`).join("")}</select></label>
+ <label>수량<div class="detail-qty"><button id="dqMinus">−</button><b id="dqValue">1</b><button id="dqPlus">＋</button></div></label>
+ <div class="detail-actions"><button id="detailShare">상품 공유하기</button><button id="detailAdd">장바구니 담기</button></div>
+ </div>`;
+ document.body.appendChild(m);let qty=1;
+ const main=m.querySelector(".detail-main"),video=m.querySelector(".detail-video-main");
+ m.querySelector(".detail-close").onclick=()=>m.remove();
+ m.querySelectorAll(".image-thumb").forEach(b=>b.onclick=()=>{if(main){main.src=b.dataset.src;main.classList.remove("hidden")}video.classList.add("hidden");video.src="";});
+ const yb=m.querySelector(".youtube-thumb");if(yb)yb.onclick=()=>{if(main)main.classList.add("hidden");video.src=yb.dataset.youtube;video.classList.remove("hidden");};
+ m.querySelector("#dqMinus").onclick=()=>{qty=Math.max(1,qty-1);m.querySelector("#dqValue").textContent=qty};
+ m.querySelector("#dqPlus").onclick=()=>{qty=Math.min(99,qty+1);m.querySelector("#dqValue").textContent=qty};
+ m.querySelector("#detailShare").onclick=async()=>{const u=new URL(location.href);u.searchParams.set("product",p.id);const d={title:p.name,text:`${p.name} · ${Number(p.price).toFixed(2)} π`,url:u.toString()};try{if(navigator.share)await navigator.share(d);else{await navigator.clipboard.writeText(d.url);toast("상품 링크를 복사했습니다.");}}catch(e){}};
+ m.querySelector("#detailAdd").onclick=()=>{const opt=m.querySelector("#detailOption").value,f=cart.find(x=>x.id===p.id&&(x.option||"기본")===opt);if(f)f.qty=(f.qty||1)+qty;else cart.push({...p,option:opt,qty});updateCart();m.remove();toast(`${p.name} 장바구니에 담음`);};
 }
 window.openProductDetail=openProductDetail;
 
@@ -300,3 +339,12 @@ const _oldUpdateCart=updateCart; updateCart=function(){_oldUpdateCart();updateTo
 const topCartBtn=document.getElementById("topCartBtn");
 if(topCartBtn)topCartBtn.addEventListener("click",()=>{if(cart.length)openCartReview();else toast("장바구니가 비어 있습니다.");});
 updateTopCart();
+
+// V164_CART_ORDER_DELEGATE
+document.addEventListener("click",function(e){
+ const b=e.target.closest("#cartCheckout,#cartOrderBtn,[data-cart-checkout]");
+ if(!b)return;
+ e.preventDefault();e.stopPropagation();
+ const modal=b.closest(".shipping-modal"); if(modal)modal.remove();
+ setTimeout(()=>checkout(),0);
+});
