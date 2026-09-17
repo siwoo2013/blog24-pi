@@ -109,3 +109,6 @@ main{max-width:980px;margin:auto}
   .shipping-box input{padding:14px 12px;margin:6px 0;}
   .shipping-actions button{min-height:50px;}
 }
+
+/* V1.6.3 */
+.final-confirm .confirm-section{border-top:1px solid #eee;padding:12px 0}.final-confirm .confirm-section h3{font-size:14px;margin:0 0 8px;color:#6f3c91}.final-confirm .confirm-section p{margin:5px 0;font-size:14px;line-height:1.45}.confirm-item{display:flex;justify-content:space-between;gap:12px;padding:8px 0}.confirm-item small{display:block;color:#777;margin-top:4px}.confirm-total{display:flex;justify-content:space-between;align-items:center;font-size:18px;padding:15px 0;border-top:2px solid #eee}.confirm-total b{color:#6f3c91}

@@ -42,3 +42,11 @@ GitHub 기존 프로젝트에 덮어쓴 뒤 Render 재배포.
 - 앱 아이콘 `public/images/app-icon.svg` 포함
 - SNS 공유 이미지 `public/images/sns-share.svg` 포함
 - Push 알림은 차기 버전 예정
+
+
+## V1.6.3
+- V1.6.2 모바일 Safe Area 수정 유지
+- 상품/옵션/수량 → 장바구니 → 배송정보 → 최종 주문확인 → Pi Testnet 결제
+- 옵션/수량 DB 저장 및 주문내역 표시
+- 상세 이미지 3장/YouTube/상품공유/정보 기억 유지
+- 앱 아이콘/SNS 공유 이미지 유지

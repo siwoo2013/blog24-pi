@@ -48,6 +48,7 @@ async function initDb(){
  `);
  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS orderer_name TEXT");
  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS orderer_phone TEXT");
+ await pool.query("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_option TEXT");
  console.log("DB tables ready");
 }
 
@@ -89,22 +90,23 @@ app.post("/api/orders/draft",needDb,async(req,res)=>{
   const {orderId,username,uid,shipping,items}=req.body||{};
   if(!orderId||!shipping?.recipientName||!shipping?.phone||!shipping?.address||!items?.length)
    return res.status(400).json({ok:false,error:"주문/배송 정보가 부족합니다."});
-  const counts={}; for(const x of items) counts[x.id]=(counts[x.id]||0)+1;
   let itemTotal=0,shippingTotal=0; const verified=[];
-  for(const [id0,qty] of Object.entries(counts)){
-   const p=PRODUCTS.find(x=>x.id===Number(id0)); if(!p)return res.status(400).json({ok:false,error:"잘못된 상품입니다."});
-   itemTotal+=p.price*qty; shippingTotal+=p.shipping*qty; verified.push({...p,qty});
+  for(const x of items){
+   const p=PRODUCTS.find(v=>v.id===Number(x.id)); if(!p)return res.status(400).json({ok:false,error:"잘못된 상품입니다."});
+   const qty=Math.max(1,Math.min(99,Number(x.qty)||1)), option=String(x.option||"기본").slice(0,100);
+   itemTotal+=p.price*qty; shippingTotal+=p.shipping*qty; verified.push({...p,qty,option});
   }
-  const total=Number((itemTotal+shippingTotal).toFixed(7)); const c=await pool.connect();
+  const total=Number((itemTotal+shippingTotal).toFixed(7)),c=await pool.connect();
   try{await c.query("BEGIN");
    await c.query(`INSERT INTO orders(order_id,pi_username,pi_uid,orderer_name,orderer_phone,recipient_name,phone,postal_code,address,address_detail,delivery_memo,item_total,shipping_total,paid_total)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(order_id) DO NOTHING`,
     [orderId,username||null,uid||null,shipping.ordererName||null,shipping.ordererPhone||null,shipping.recipientName,shipping.phone,shipping.postalCode||null,shipping.address,shipping.addressDetail||null,shipping.deliveryMemo||null,itemTotal,shippingTotal,total]);
-   for(const p of verified) await c.query(`INSERT INTO order_items(order_id,product_id,product_name,quantity,unit_price,shipping_fee)
-    VALUES($1,$2,$3,$4,$5,$6)`,[orderId,p.id,p.name,p.qty,p.price,p.shipping]);
+   const exists=await c.query("SELECT COUNT(*)::int n FROM order_items WHERE order_id=$1",[orderId]);
+   if(Number(exists.rows[0].n)===0) for(const p of verified) await c.query(`INSERT INTO order_items(order_id,product_id,product_name,product_option,quantity,unit_price,shipping_fee)
+    VALUES($1,$2,$3,$4,$5,$6,$7)`,[orderId,p.id,p.name,p.option,p.qty,p.price,p.shipping]);
    await c.query("COMMIT");
   }catch(e){await c.query("ROLLBACK");throw e}finally{c.release()}
-  res.json({ok:true,orderId,amount:total});
+  res.json({ok:true,orderId,amount:total,itemTotal:Number(itemTotal.toFixed(7)),shippingTotal:Number(shippingTotal.toFixed(7))});
  }catch(e){console.error(e);res.status(500).json({ok:false,error:e.message})}
 });
 
@@ -134,7 +136,7 @@ app.get("/api/orders/mine",needDb,async(req,res)=>{
  try{
   const uid=String(req.query.uid||"").trim();
   if(!uid)return res.status(400).json({ok:false,error:"uid required"});
-  const r=await pool.query(`SELECT o.*,COALESCE(json_agg(json_build_object('id',i.id,'productId',i.product_id,'productName',i.product_name,'quantity',i.quantity,'unitPrice',i.unit_price,'shippingFee',i.shipping_fee,'itemStatus',i.item_status) ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL),'[]') items FROM orders o LEFT JOIN order_items i ON i.order_id=o.order_id WHERE o.pi_uid=$1 GROUP BY o.id ORDER BY o.ordered_at DESC LIMIT 100`,[uid]);
+  const r=await pool.query(`SELECT o.*,COALESCE(json_agg(json_build_object('id',i.id,'productId',i.product_id,'productName',i.product_name,'option',i.product_option,'quantity',i.quantity,'unitPrice',i.unit_price,'shippingFee',i.shipping_fee,'itemStatus',i.item_status) ORDER BY i.id) FILTER (WHERE i.id IS NOT NULL),'[]') items FROM orders o LEFT JOIN order_items i ON i.order_id=o.order_id WHERE o.pi_uid=$1 GROUP BY o.id ORDER BY o.ordered_at DESC LIMIT 100`,[uid]);
   res.json({ok:true,orders:r.rows});
  }catch(e){console.error(e);res.status(500).json({ok:false,error:e.message})}
 });

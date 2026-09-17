@@ -60,44 +60,6 @@ window.addToCart = function(id){
 }
 
 
-window.openProductDetail = function(id){
-  const p = products.find(x => x.id === id);
-  if (!p) return;
-  const m = document.createElement("div");
-  m.className = "shipping-modal";
-  m.innerHTML = `<div class="shipping-box product-detail-box">
-    <button class="detail-close" aria-label="닫기">×</button>
-    <div class="detail-icon">${p.icon}</div>
-    <h2>${p.name}</h2>
-    <div class="detail-price">${p.price.toFixed(2)} π</div>
-    <p class="detail-desc">${p.detail || p.desc}</p>
-    <label class="field-label">옵션</label>
-    <select id="detailOption">${(p.options || ["기본"]).map(o=>`<option value="${o}">${o}</option>`).join("")}</select>
-    <label class="field-label">수량</label>
-    <div class="detail-qty"><button id="dqMinus">−</button><b id="dqValue">1</b><button id="dqPlus">＋</button></div>
-    <div class="detail-actions"><button id="shareProduct" class="share-btn">상품 공유하기</button><button id="detailAdd" class="primary-detail">장바구니 담기</button></div>
-  </div>`;
-  document.body.appendChild(m);
-  let qty=1; const qv=m.querySelector("#dqValue");
-  m.querySelector(".detail-close").onclick=()=>m.remove();
-  m.onclick=e=>{if(e.target===m)m.remove()};
-  m.querySelector("#dqMinus").onclick=()=>{qty=Math.max(1,qty-1);qv.textContent=qty};
-  m.querySelector("#dqPlus").onclick=()=>{qty+=1;qv.textContent=qty};
-  m.querySelector("#detailAdd").onclick=()=>{
-    const option=m.querySelector("#detailOption").value;
-    const found=cart.find(x=>x.id===p.id&&x.option===option);
-    if(found) found.qty+=qty; else cart.push({...p,option,qty});
-    updateCart(); m.remove(); toast(`${p.name} ${qty}개 장바구니에 담음`);
-  };
-  m.querySelector("#shareProduct").onclick=async()=>{
-    const url=`${location.origin}${location.pathname}?product=${p.id}`;
-    try{
-      if(navigator.share) await navigator.share({title:p.name,text:`${p.name} · ${p.price.toFixed(2)} π`,url});
-      else { await navigator.clipboard.writeText(url); toast("상품 링크를 복사했습니다."); }
-    }catch(e){ if(e?.name!=="AbortError") toast("공유를 완료하지 못했습니다."); }
-  };
-};
-
 function updateCart(){
   const total = cart.reduce((sum,p) => sum + (p.price * (p.qty || 1)), 0);
   cartCount.textContent = cart.reduce((n,p)=>n+(p.qty||1),0);
@@ -223,6 +185,10 @@ function askShippingInfo(){
  });
 }
 
+function confirmOrderBeforePi(shipping){
+ return new Promise(resolve=>{const m=document.createElement("div");m.className="shipping-modal";const total=cart.reduce((a,p)=>a+Number(p.price)*(p.qty||1),0);const rows=cart.map(p=>`<div class="confirm-item"><div><b>${p.name}</b><small>옵션: ${p.option||"기본"} · 수량 ${p.qty||1}</small></div><b>${(Number(p.price)*(p.qty||1)).toFixed(2)} π</b></div>`).join("");m.innerHTML=`<div class="shipping-box final-confirm"><h2>최종 주문 확인</h2><div class="confirm-section"><h3>주문상품</h3>${rows}</div><div class="confirm-section"><h3>주문자</h3><p>${shipping.ordererName} · ${shipping.ordererPhone}</p></div><div class="confirm-section"><h3>배송정보</h3><p>${shipping.recipientName} · ${shipping.phone}</p><p>${shipping.postalCode||""} ${shipping.address} ${shipping.addressDetail||""}</p><p>${shipping.deliveryMemo||""}</p></div><div class="confirm-total"><span>결제 예정금액</span><b>${total.toFixed(2)} π</b></div><div class="shipping-actions"><button id="confirmBack">이전</button><button id="confirmPi">Pi 결제 진행</button></div></div>`;document.body.appendChild(m);m.querySelector("#confirmBack").onclick=()=>{m.remove();resolve(false)};m.querySelector("#confirmPi").onclick=()=>{m.remove();resolve(true)};});
+}
+
 async function checkout(){
   if (!cart.length || paymentInProgress) return;
   if (!currentUser) { toast("먼저 Pi 로그인을 해주세요."); return; }
@@ -232,10 +198,11 @@ async function checkout(){
   if (!proceed || !cart.length) return;
   const shipping = await askShippingInfo();
   if (!shipping) return;
+  const confirmed = await confirmOrderBeforePi(shipping);
+  if (!confirmed) return;
 
   const orderId = `BLOG24-${Date.now()}`;
-  const expandedItems = [];
-  cart.forEach(p => { for(let i=0;i<(p.qty||1);i++) expandedItems.push({id:p.id}); });
+  const expandedItems = cart.map(p => ({id:p.id,option:p.option||"기본",qty:p.qty||1}));
 
   paymentInProgress = true;
   const checkoutBtn = document.getElementById("checkoutBtn");
@@ -254,8 +221,8 @@ async function checkout(){
 
     Pi.createPayment({
       amount,
-      memo: `Blog24 상품 ${expandedItems.length}개 결제`,
-      metadata: { orderId, itemIds: expandedItems.map(x=>x.id) }
+      memo: `Blog24 상품 ${expandedItems.reduce((a,x)=>a+(x.qty||1),0)}개 결제`,
+      metadata: { orderId, itemIds: expandedItems.map(x=>x.id), quantities: expandedItems.map(x=>x.qty) }
     }, {
       onReadyForServerApproval: async paymentId => {
         await approvePayment(paymentId);
@@ -322,23 +289,9 @@ if(sharedProductId && products.some(p=>p.id===sharedProductId)) setTimeout(()=>o
 
 
 function openProductDetail(id){
- const p=products.find(x=>x.id===id); if(!p)return;
- const media=p.images||[]; const m=document.createElement("div");m.className="shipping-modal";
- m.innerHTML=`<div class="shipping-box product-detail"><button class="detail-close">✕</button>
- <img class="detail-main" src="${media[0]||""}" alt="${p.name}">
- <div class="detail-thumbs">${media.slice(0,3).map((x,i)=>`<img src="${x}" data-src="${x}" alt="상품 이미지 ${i+1}">`).join("")}</div>
- <h2>${p.name}</h2><p>${p.desc||""}</p><b class="detail-price">${Number(p.price).toFixed(2)} π</b>
- <label>옵션<select id="detailOption">${(p.options||["기본"]).map(x=>`<option>${x}</option>`).join("")}</select></label>
- <label>수량<input id="detailQty" type="number" min="1" value="1"></label>
- ${p.youtube?`<div class="video-wrap"><iframe src="${p.youtube}" title="상품 영상" allowfullscreen></iframe></div>`:""}
- <div class="detail-actions"><button id="detailShare">공유하기</button><button id="detailAdd">장바구니 담기</button></div></div>`;
- document.body.appendChild(m);
- m.querySelector(".detail-close").onclick=()=>m.remove();
- m.querySelectorAll(".detail-thumbs img").forEach(x=>x.onclick=()=>m.querySelector(".detail-main").src=x.dataset.src);
- m.querySelector("#detailShare").onclick=async()=>{const data={title:p.name,text:`${p.name} ${Number(p.price).toFixed(2)} π`,url:location.href};
-  try{if(navigator.share)await navigator.share(data);else{await navigator.clipboard.writeText(location.href);toast("상품 링크를 복사했습니다.");}}catch(e){}};
- m.querySelector("#detailAdd").onclick=()=>{const q=Math.max(1,parseInt(m.querySelector("#detailQty").value||"1"));const opt=m.querySelector("#detailOption").value;
-  const f=cart.find(x=>x.id===p.id&&x.option===opt);if(f)f.qty=(f.qty||1)+q;else cart.push({...p,option:opt,qty:q});updateCart();m.remove();toast(`${p.name} 장바구니에 담음`);};
+ const p=products.find(x=>x.id===id);if(!p)return;const media=(p.images||[]).slice(0,3),m=document.createElement("div");m.className="shipping-modal";
+ m.innerHTML=`<div class="shipping-box product-detail"><button class="detail-close">✕</button>${media.length?`<img class="detail-main" src="${media[0]}" alt="${p.name}"><div class="detail-thumbs">${media.map((x,i)=>`<img src="${x}" data-src="${x}" alt="상품 이미지 ${i+1}">`).join("")}</div>`:`<div class="detail-icon">${p.icon||"🛍️"}</div>`}<h2>${p.name}</h2><p>${p.detail||p.desc||""}</p><b class="detail-price">${Number(p.price).toFixed(2)} π</b><label>옵션<select id="detailOption">${(p.options||["기본"]).map(x=>`<option value="${x}">${x}</option>`).join("")}</select></label><label>수량<div class="detail-qty"><button id="dqMinus">−</button><b id="dqValue">1</b><button id="dqPlus">＋</button></div></label>${p.youtube?`<div class="video-wrap"><iframe src="${p.youtube}" title="상품 영상" allowfullscreen></iframe></div>`:""}<div class="detail-actions"><button id="detailShare">상품 공유하기</button><button id="detailAdd">장바구니 담기</button></div></div>`;
+ document.body.appendChild(m);let qty=1;m.querySelector(".detail-close").onclick=()=>m.remove();m.querySelectorAll(".detail-thumbs img").forEach(x=>x.onclick=()=>m.querySelector(".detail-main").src=x.dataset.src);m.querySelector("#dqMinus").onclick=()=>{qty=Math.max(1,qty-1);m.querySelector("#dqValue").textContent=qty};m.querySelector("#dqPlus").onclick=()=>{qty=Math.min(99,qty+1);m.querySelector("#dqValue").textContent=qty};m.querySelector("#detailShare").onclick=async()=>{const u=new URL(location.href);u.searchParams.set("product",p.id);const d={title:p.name,text:`${p.name} · ${Number(p.price).toFixed(2)} π`,url:u.toString()};try{if(navigator.share)await navigator.share(d);else{await navigator.clipboard.writeText(d.url);toast("상품 링크를 복사했습니다.");}}catch(e){}};m.querySelector("#detailAdd").onclick=()=>{const opt=m.querySelector("#detailOption").value,f=cart.find(x=>x.id===p.id&&(x.option||"기본")===opt);if(f)f.qty=(f.qty||1)+qty;else cart.push({...p,option:opt,qty});updateCart();m.remove();toast(`${p.name} 장바구니에 담음`);};
 }
 window.openProductDetail=openProductDetail;
 
