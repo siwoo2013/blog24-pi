@@ -1,5 +1,6 @@
 const express=require("express");
 const path=require("path");
+const crypto=require("crypto");
 const {Pool}=require("pg");
 const app=express();
 const PORT=process.env.PORT||3000;
@@ -70,7 +71,12 @@ async function applyAutomaticOrderStatuses(){
 
 function needKey(req,res,next){if(!PI_API_KEY)return res.status(500).json({ok:false,error:"PI_API_KEY missing"});next()}
 function needDb(req,res,next){if(!pool)return res.status(503).json({ok:false,error:"DATABASE_URL missing"});next()}
-function needAdmin(req,res,next){if(!ADMIN_KEY)return res.status(503).json({ok:false,error:"ADMIN_KEY missing"});const key=req.get("x-admin-key")||req.query.adminKey;if(key!==ADMIN_KEY)return res.status(401).json({ok:false,error:"관리자 인증 실패"});next()}
+const adminSessions=new Map();
+function cookieValue(req,name){const raw=req.headers.cookie||"";for(const part of raw.split(";")){const [k,...v]=part.trim().split("=");if(k===name)return decodeURIComponent(v.join("="));}return "";}
+function needAdmin(req,res,next){if(!ADMIN_KEY)return res.status(503).json({ok:false,error:"ADMIN_KEY missing"});const token=cookieValue(req,"blog24_admin_session");const exp=adminSessions.get(token);if(!token||!exp||exp<Date.now()){if(token)adminSessions.delete(token);return res.status(401).json({ok:false,error:"관리자 로그인이 필요합니다."});}adminSessions.set(token,Date.now()+8*60*60*1000);next();}
+app.post("/api/admin/login",(req,res)=>{if(!ADMIN_KEY)return res.status(503).json({ok:false,error:"ADMIN_KEY missing"});if(String(req.body?.key||"")!==ADMIN_KEY)return res.status(401).json({ok:false,error:"관리자 키가 올바르지 않습니다."});const token=crypto.randomBytes(32).toString("hex");adminSessions.set(token,Date.now()+8*60*60*1000);res.setHeader("Set-Cookie",`blog24_admin_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=28800`);res.json({ok:true});});
+app.get("/api/admin/session",needAdmin,(req,res)=>res.json({ok:true}));
+app.post("/api/admin/logout",needAdmin,(req,res)=>{const token=cookieValue(req,"blog24_admin_session");adminSessions.delete(token);res.setHeader("Set-Cookie","blog24_admin_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0");res.json({ok:true});});
 async function piPost(ep,body){
  const r=await fetch(PI_API_BASE+ep,{method:"POST",headers:{Authorization:`Key ${PI_API_KEY}`,"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
  const t=await r.text();let d;try{d=t?JSON.parse(t):{}}catch{d={raw:t}}
@@ -140,7 +146,7 @@ app.get("/api/orders/:orderId",needDb,async(req,res)=>{
  }catch(e){res.status(500).json({ok:false,error:e.message})}
 });
 
-app.get("/api/admin/orders",needDb,async(req,res)=>{
+app.get("/api/admin/orders",needDb,needAdmin,async(req,res)=>{
   await applyAutomaticOrderStatuses();
   const status=(req.query.status||"ALL").toUpperCase();
   const allowed=["ALL","PAID","PREPARING","SHIPPED","DELIVERED","CONFIRMED","CANCELLED","REFUND_REQUESTED","REFUNDED"];
@@ -151,6 +157,11 @@ app.get("/api/admin/orders",needDb,async(req,res)=>{
   const r=await pool.query(sql,status==="ALL"?[]:[status]);
   const counts=(await pool.query(`SELECT order_status,COUNT(*)::int count FROM orders GROUP BY order_status`)).rows;
   res.json({ok:true,orders:r.rows,counts});
+});
+app.post("/api/admin/orders/:orderId/preparing",needDb,needAdmin,async(req,res)=>{
+ const q=await pool.query("UPDATE orders SET order_status='PREPARING',preparing_at=NOW() WHERE order_id=$1 AND order_status IN ('PAID','PENDING') RETURNING order_id,order_status",[req.params.orderId]);
+ if(!q.rows.length)return res.status(409).json({ok:false,error:"결제완료 주문만 상품준비 처리할 수 있습니다."});
+ res.json({ok:true,order:q.rows[0]});
 });
 app.post("/api/admin/orders/:orderId/ship",needDb,needAdmin,async(req,res)=>{
  const {courier,trackingNumber}=req.body||{};if(!trackingNumber)return res.status(400).json({ok:false,error:"송장번호 필요"});
@@ -197,7 +208,7 @@ app.post("/api/orders/:orderId/confirm",needDb,async(req,res)=>{
   res.json({ok:true});
 });
 
-app.get("/api/admin/orders-export.csv",needDb,async(req,res)=>{
+app.get("/api/admin/orders-export.csv",needDb,needAdmin,async(req,res)=>{
   await applyAutomaticOrderStatuses();
   const status=(req.query.status||"ALL").toUpperCase();
   const args=status==="ALL"?[]:[status];

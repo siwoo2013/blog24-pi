@@ -342,32 +342,8 @@ function openProductDetail(id){
 }
 window.openProductDetail=openProductDetail;
 
-function ensureV16Header(){
- const h=document.querySelector("header")||document.body;
- const box=document.createElement("div");box.className="v16-tools";
- box.innerHTML=`<button id="externalOpenBtn">🌐 Google로 열기</button><button id="installBtn">📲 홈 화면 바로가기</button><button id="topCartBtn">🛒 장바구니 <b id="topCartCount">0</b></button>`;
- h.appendChild(box);
- document.getElementById("topCartBtn").onclick=()=>{if(cart.length)openCartReview();else toast("장바구니가 비어 있습니다.");};
- document.getElementById("externalOpenBtn").onclick=()=>openExternalBrowser();
- document.getElementById("installBtn").onclick=()=>installShortcut();
- updateTopCart();
-}
 function updateTopCart(){const e=document.getElementById("topCartCount");if(e)e.textContent=cart.reduce((a,p)=>a+(p.qty||1),0);}
 const _oldUpdateCart=updateCart; updateCart=function(){_oldUpdateCart();updateTopCart();};
-
-function openExternalBrowser(){
- const u=location.href.replace(/^https?:\/\//,"");
- if(/Android/i.test(navigator.userAgent)){
-   location.href=`intent://${u}#Intent;scheme=https;package=com.android.chrome;end`;
-   setTimeout(()=>toast("열리지 않으면 주소를 복사해 Chrome에서 열어주세요."),1200);
- } else window.open(location.href,"_blank");
-}
-let deferredInstallPrompt=null;
-window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e;});
-async function installShortcut(){
- if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;}
- else toast("브라우저 메뉴에서 '홈 화면에 추가'를 선택해주세요.");
-}
-
-
-window.addEventListener("DOMContentLoaded",()=>{try{ensureV16Header()}catch(e){console.error(e)}});
+const topCartBtn=document.getElementById("topCartBtn");
+if(topCartBtn)topCartBtn.addEventListener("click",()=>{if(cart.length)openCartReview();else toast("장바구니가 비어 있습니다.");});
+updateTopCart();
