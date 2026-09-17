@@ -1,10 +1,10 @@
 const products = [
-  { id: 1, name: "Blog24 머그컵", price: 1.2, icon: "☕", desc: "Blog24 데일리 머그" },
-  { id: 2, name: "Pi 데스크 패드", price: 2.5, icon: "🖥️", desc: "책상을 깔끔하게 정리하는 패드" },
-  { id: 3, name: "스마트 파우치", price: 3.8, icon: "🎒", desc: "작은 소지품을 담는 데일리 파우치" },
-  { id: 4, name: "Blog24 노트", price: 0.8, icon: "📒", desc: "아이디어 기록용 노트" },
-  { id: 5, name: "휴대폰 거치대", price: 1.6, icon: "📱", desc: "간편한 데스크용 거치대" },
-  { id: 6, name: "테스트 상품", price: 0.1, icon: "🧪", desc: "Pi Testnet 결제 테스트용" }
+  { id: 1, name: "Blog24 머그컵", price: 1.2, icon: "☕", desc: "Blog24 데일리 머그", detail: "Blog24 로고 감성으로 가볍게 사용할 수 있는 데일리 머그컵입니다.", options: ["기본", "화이트", "퍼플"] },
+  { id: 2, name: "Pi 데스크 패드", price: 2.5, icon: "🖥️", desc: "책상을 깔끔하게 정리하는 패드", detail: "키보드와 마우스를 함께 올려두기 좋은 데스크 패드입니다.", options: ["기본", "소형", "대형"] },
+  { id: 3, name: "스마트 파우치", price: 3.8, icon: "🎒", desc: "작은 소지품을 담는 데일리 파우치", detail: "케이블, 충전기 등 작은 소지품을 정리하기 좋은 파우치입니다.", options: ["기본", "블랙", "퍼플"] },
+  { id: 4, name: "Blog24 노트", price: 0.8, icon: "📒", desc: "아이디어 기록용 노트", detail: "간단한 메모와 아이디어 기록에 적합한 Blog24 노트입니다.", options: ["기본"] },
+  { id: 5, name: "휴대폰 거치대", price: 1.6, icon: "📱", desc: "간편한 데스크용 거치대", detail: "책상 위에서 휴대폰을 편하게 세워둘 수 있는 거치대입니다.", options: ["기본"] },
+  { id: 6, name: "테스트 상품", price: 0.1, icon: "🧪", desc: "Pi Testnet 결제 테스트용", detail: "Pi Testnet 결제 흐름을 빠르게 확인하기 위한 테스트 상품입니다.", options: ["기본"] }
 ];
 
 let cart = [];
@@ -27,14 +27,14 @@ function toast(message){
 
 function renderProducts(){
   grid.innerHTML = products.map(p => `
-    <article class="card">
+    <article class="card" onclick="openProductDetail(${p.id})">
       <div class="product-img">${p.icon}</div>
       <div class="card-body">
         <h3>${p.name}</h3>
         <div class="desc">${p.desc}</div>
         <div class="price-row">
           <span class="price">${p.price.toFixed(2)} π</span>
-          <button class="add" onclick="addToCart(${p.id})">담기</button>
+          <button class="add" onclick="event.stopPropagation(); addToCart(${p.id})">담기</button>
         </div>
       </div>
     </article>
@@ -50,6 +50,45 @@ window.addToCart = function(id){
   updateCart();
   toast(`${p.name} 장바구니에 담음`);
 }
+
+
+window.openProductDetail = function(id){
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  const m = document.createElement("div");
+  m.className = "shipping-modal";
+  m.innerHTML = `<div class="shipping-box product-detail-box">
+    <button class="detail-close" aria-label="닫기">×</button>
+    <div class="detail-icon">${p.icon}</div>
+    <h2>${p.name}</h2>
+    <div class="detail-price">${p.price.toFixed(2)} π</div>
+    <p class="detail-desc">${p.detail || p.desc}</p>
+    <label class="field-label">옵션</label>
+    <select id="detailOption">${(p.options || ["기본"]).map(o=>`<option value="${o}">${o}</option>`).join("")}</select>
+    <label class="field-label">수량</label>
+    <div class="detail-qty"><button id="dqMinus">−</button><b id="dqValue">1</b><button id="dqPlus">＋</button></div>
+    <div class="detail-actions"><button id="shareProduct" class="share-btn">상품 공유하기</button><button id="detailAdd" class="primary-detail">장바구니 담기</button></div>
+  </div>`;
+  document.body.appendChild(m);
+  let qty=1; const qv=m.querySelector("#dqValue");
+  m.querySelector(".detail-close").onclick=()=>m.remove();
+  m.onclick=e=>{if(e.target===m)m.remove()};
+  m.querySelector("#dqMinus").onclick=()=>{qty=Math.max(1,qty-1);qv.textContent=qty};
+  m.querySelector("#dqPlus").onclick=()=>{qty+=1;qv.textContent=qty};
+  m.querySelector("#detailAdd").onclick=()=>{
+    const option=m.querySelector("#detailOption").value;
+    const found=cart.find(x=>x.id===p.id&&x.option===option);
+    if(found) found.qty+=qty; else cart.push({...p,option,qty});
+    updateCart(); m.remove(); toast(`${p.name} ${qty}개 장바구니에 담음`);
+  };
+  m.querySelector("#shareProduct").onclick=async()=>{
+    const url=`${location.origin}${location.pathname}?product=${p.id}`;
+    try{
+      if(navigator.share) await navigator.share({title:p.name,text:`${p.name} · ${p.price.toFixed(2)} π`,url});
+      else { await navigator.clipboard.writeText(url); toast("상품 링크를 복사했습니다."); }
+    }catch(e){ if(e?.name!=="AbortError") toast("공유를 완료하지 못했습니다."); }
+  };
+};
 
 function updateCart(){
   const total = cart.reduce((sum,p) => sum + (p.price * (p.qty || 1)), 0);
@@ -82,6 +121,7 @@ async function loginPi(){
     const auth = await Pi.authenticate(scopes, onIncompletePaymentFound);
     currentUser = auth.user;
     loginBtn.textContent = currentUser.username || "로그인 완료";
+    document.getElementById("ordersBtn").classList.remove("hidden");
     toast(`Pi 로그인 완료: ${currentUser.username || ""}`);
   } catch (e) {
     console.error(e);
@@ -146,17 +186,30 @@ function openCartReview(){
 
 function askShippingInfo(){
  return new Promise(resolve=>{
+  const savedRecipient=JSON.parse(localStorage.getItem("blog24_recipient")||"null");
+  const savedOrderer=JSON.parse(localStorage.getItem("blog24_orderer")||"null");
+  const recipient=savedRecipient||{recipientName:"홍길동",phone:"010-0000-8282",postalCode:"08282",address:"서울시 관악구 주문로 8282",addressDetail:"8282호",deliveryMemo:"테스트 주문입니다"};
+  const orderer=savedOrderer||{ordererName:"홍길동",ordererPhone:"010-0000-8282"};
   const m=document.createElement("div");m.className="shipping-modal";
-  m.innerHTML=`<div class="shipping-box"><h2>배송정보</h2>
-  <input id="sn" value="홍길동" placeholder="받는 분 이름"><input id="sp" value="010-0000-8282" placeholder="휴대폰 번호">
-  <input id="sz" value="08282" placeholder="우편번호"><input id="sa" value="서울시 관악구 주문로 8282" placeholder="배송 주소">
-  <input id="sd" value="8282호" placeholder="상세 주소"><input id="sm" value="테스트 주문입니다" placeholder="배송 메모 (선택)">
+  m.innerHTML=`<div class="shipping-box"><h2>주문자 · 배송정보</h2>
+  <h3 class="form-subtitle">주문자 정보</h3>
+  <input id="on" value="${orderer.ordererName||""}" placeholder="주문자 이름"><input id="op" value="${orderer.ordererPhone||""}" placeholder="주문자 휴대폰 번호">
+  <label class="remember-row"><input type="checkbox" id="rememberOrderer" ${savedOrderer?"checked":""}> 주문자 정보 기억하기</label>
+  <h3 class="form-subtitle">받는 사람 정보</h3>
+  <input id="sn" value="${recipient.recipientName||""}" placeholder="받는 분 이름"><input id="sp" value="${recipient.phone||""}" placeholder="휴대폰 번호">
+  <input id="sz" value="${recipient.postalCode||""}" placeholder="우편번호"><input id="sa" value="${recipient.address||""}" placeholder="배송 주소">
+  <input id="sd" value="${recipient.addressDetail||""}" placeholder="상세 주소"><input id="sm" value="${recipient.deliveryMemo||""}" placeholder="배송 메모 (선택)">
+  <label class="remember-row"><input type="checkbox" id="rememberRecipient" ${savedRecipient?"checked":""}> 받는 사람 정보 기억하기</label>
   <div class="shipping-actions"><button id="sc">취소</button><button id="so">주문 확인 및 Pi 결제</button></div></div>`;
   document.body.appendChild(m);
   m.querySelector("#sc").onclick=()=>{m.remove();resolve(null)};
   m.querySelector("#so").onclick=()=>{
-    const v={recipientName:m.querySelector("#sn").value.trim(),phone:m.querySelector("#sp").value.trim(),postalCode:m.querySelector("#sz").value.trim(),address:m.querySelector("#sa").value.trim(),addressDetail:m.querySelector("#sd").value.trim(),deliveryMemo:m.querySelector("#sm").value.trim()};
-    if(!v.recipientName||!v.phone||!v.address){toast("받는 분, 휴대폰, 주소는 필수입니다.");return}
+    const ordererInfo={ordererName:m.querySelector("#on").value.trim(),ordererPhone:m.querySelector("#op").value.trim()};
+    const v={recipientName:m.querySelector("#sn").value.trim(),phone:m.querySelector("#sp").value.trim(),postalCode:m.querySelector("#sz").value.trim(),address:m.querySelector("#sa").value.trim(),addressDetail:m.querySelector("#sd").value.trim(),deliveryMemo:m.querySelector("#sm").value.trim(),...ordererInfo};
+    if(!ordererInfo.ordererName||!ordererInfo.ordererPhone||!v.recipientName||!v.phone||!v.address){toast("주문자/받는 분 이름, 휴대폰, 주소는 필수입니다.");return}
+    if(m.querySelector("#rememberOrderer").checked)localStorage.setItem("blog24_orderer",JSON.stringify(ordererInfo));else localStorage.removeItem("blog24_orderer");
+    const recipientInfo={recipientName:v.recipientName,phone:v.phone,postalCode:v.postalCode,address:v.address,addressDetail:v.addressDetail,deliveryMemo:v.deliveryMemo};
+    if(m.querySelector("#rememberRecipient").checked)localStorage.setItem("blog24_recipient",JSON.stringify(recipientInfo));else localStorage.removeItem("blog24_recipient");
     m.remove();resolve(v);
   };
  });
@@ -230,11 +283,31 @@ async function checkout(){
   }
 }
 
+
+
+function statusKo(s){return ({PENDING:"결제대기",PAID:"결제완료",PREPARING:"상품준비중",SHIPPED:"배송중",DELIVERED:"배송완료",CONFIRMED:"구매확정"})[s]||s||"-"}
+function fmtDate(v){try{return new Date(v).toLocaleString("ko-KR")}catch{return v||"-"}}
+async function openMyOrders(){
+ if(!currentUser?.uid){toast("먼저 Pi 로그인을 해주세요.");return}
+ const m=document.createElement("div");m.className="shipping-modal";
+ m.innerHTML=`<div class="shipping-box"><h2>내 주문내역</h2><div id="myOrders" class="orders-list"><div>불러오는 중...</div></div><div class="shipping-actions"><button id="ordersClose">닫기</button></div></div>`;
+ document.body.appendChild(m);m.querySelector("#ordersClose").onclick=()=>m.remove();
+ try{
+  const r=await fetch(`/api/orders/mine?uid=${encodeURIComponent(currentUser.uid)}`);const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||`HTTP ${r.status}`);
+  const box=m.querySelector("#myOrders");
+  if(!d.orders.length){box.innerHTML="<div>아직 주문내역이 없습니다.</div>";return}
+  box.innerHTML=d.orders.map(o=>`<div class="order-card"><div class="order-card-head"><b>${o.order_id}</b><span class="order-status">${statusKo(o.order_status)}</span></div><small>${fmtDate(o.ordered_at)} · ${Number(o.paid_total).toFixed(2)} π</small><div class="order-items">${(o.items||[]).map(i=>`${i.productName} × ${i.quantity} · ${(Number(i.unitPrice)*Number(i.quantity)).toFixed(2)} π`).join("<br>")}</div>${o.tracking_number?`<div class="order-meta">${o.courier||"택배"} · 송장 ${o.tracking_number}</div>`:""}<div class="order-meta">Payment ID: ${o.payment_id||"-"}<br>TXID: ${o.txid||"-"}</div></div>`).join("");
+ }catch(e){m.querySelector("#myOrders").innerHTML=`<div>주문내역을 불러오지 못했습니다.<br>${e.message}</div>`}
+}
+
 document.getElementById("shopBtn").addEventListener("click", () => {
   document.getElementById("products").scrollIntoView({ behavior: "smooth" });
 });
 loginBtn.addEventListener("click", loginPi);
+document.getElementById("ordersBtn").addEventListener("click", openMyOrders);
 document.getElementById("checkoutBtn").addEventListener("click", checkout);
 
 renderProducts();
 initPi();
+const sharedProductId=Number(new URLSearchParams(location.search).get("product"));
+if(sharedProductId && products.some(p=>p.id===sharedProductId)) setTimeout(()=>openProductDetail(sharedProductId),250);

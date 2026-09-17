@@ -1,38 +1,19 @@
-# Blog24 Pi Shopping Mall V1.0
+# Blog24 Pi Shopping V1.5.0
 
-Pi Browser용 쇼핑몰 시작 프로젝트입니다.
+V1.4.0 기반 다음 단계 버전업:
+- 기존 상품 상세/옵션/수량/공유/정보 기억하기 유지
+- 기존 Pi Testnet 결제 승인/완료 로직 유지
+- 결제 완료 주문 DB 기록 및 Payment ID/TXID 유지
+- Pi 로그인 후 `주문내역` 버튼 표시
+- 내 주문내역: 주문번호/상태/상품/금액/송장/Payment ID/TXID 조회
+- `/admin` 관리자 주문관리 화면 추가
+- 관리자 매출 요약(오늘/월/연/총/순매출)
+- 관리자 상품준비 처리 및 택배사/송장 등록
+- 관리자 API 보호용 `ADMIN_KEY` 환경변수 추가
 
-## 로컬 실행
+## Render 환경변수
+기존 `PI_API_KEY`, `DATABASE_URL` 유지 후 `ADMIN_KEY`를 새로 추가하세요.
+예: 충분히 긴 임의 문자열. 관리자 화면 `/admin`에서 같은 값을 입력합니다.
 
-1. Node.js 18 이상 설치
-2. 프로젝트 폴더에서:
-   npm install
-   npm start
-3. 브라우저에서 http://localhost:3000
-
-## Render
-
-- Build Command: `npm install`
-- Start Command: `npm start`
-- Health Check Path: `/health`
-
-## Pi SDK
-
-현재 V1.0은 Pi SDK를 로드하고 Testnet sandbox 초기화 구조를 포함합니다.
-실제 결제 완료/승인 서버 API는 다음 단계에서 Pi Developer 설정 및 API Key와 함께 연결합니다.
-
-중요: API Key, Secret Seed 등 비밀값을 public 폴더나 GitHub에 올리지 마세요.
-
-
-## V1.2
-주문/배송정보, PostgreSQL 주문 DB, 배송상태 기반, 전체/부분환불 기록, 환불지갑/TXID, 일·월·년·총매출/환불/순매출 API 기반 추가.
-Render PostgreSQL 생성 후 Web Service에 DATABASE_URL 환경변수를 등록해야 주문 DB 기능이 활성화됩니다.
-
-
-## V1.3
-- 상품 담기 후 수량 관리
-- Pi로 결제 클릭 시 장바구니 확인 화면 우선 표시
-- 장바구니에서 수량 +/- 및 삭제
-- 주문하기 후 배송정보 입력
-- Testnet 편의용 배송 예제값 자동 입력: 홍길동 / 010-0000-8282 / 08282 / 서울시 관악구 주문로 8282 / 8282호
-- 이후 Pi Testnet 결제 진행
+## 배포
+GitHub 기존 프로젝트에 덮어쓴 뒤 Render 재배포.
