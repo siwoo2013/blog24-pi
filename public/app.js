@@ -10,6 +10,7 @@ const products = [
 let cart = [];
 let piReady = false;
 let currentUser = null;
+let paymentInProgress = false;
 
 const grid = document.getElementById("productGrid");
 const cartBar = document.getElementById("cartBar");
@@ -88,11 +89,39 @@ async function loginPi(){
   }
 }
 
-function onIncompletePaymentFound(payment){
-  console.log("Incomplete Pi payment:", payment);
-  // 다음 버전에서 서버 승인/완료 API와 연결
+async function postJSON(url, body = {}) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
 }
 
+async function approvePayment(paymentId) {
+  return postJSON(`/api/pi/payments/${encodeURIComponent(paymentId)}/approve`);
+}
+
+async function completePayment(paymentId, txid, orderId) {
+  return postJSON(`/api/pi/payments/${encodeURIComponent(paymentId)}/complete`, { txid, orderId });
+}
+
+async function onIncompletePaymentFound(payment){
+  console.log("Incomplete Pi payment:", payment);
+  try {
+    const orderId = payment?.metadata?.orderId;
+    if (payment?.transaction?.txid && payment?.status?.developer_completed !== true) {
+      toast("이전 미완료 결제를 확인하고 있습니다...");
+      await completePayment(payment.identifier, payment.transaction.txid, orderId);
+      toast("이전 Testnet 결제를 정상 완료했습니다.");
+    }
+  } catch (e) {
+    console.error(e);
+    toast("이전 미완료 결제 확인에 실패했습니다.");
+  }
+}
 
 function openCartReview(){
  return new Promise(resolve=>{
@@ -123,21 +152,82 @@ function askShippingInfo(){
   <input id="sz" value="08282" placeholder="우편번호"><input id="sa" value="서울시 관악구 주문로 8282" placeholder="배송 주소">
   <input id="sd" value="8282호" placeholder="상세 주소"><input id="sm" value="테스트 주문입니다" placeholder="배송 메모 (선택)">
   <div class="shipping-actions"><button id="sc">취소</button><button id="so">주문 확인 및 Pi 결제</button></div></div>`;
-  document.body.appendChild(m);document.getElementById("sc").onclick=()=>{m.remove();resolve(null)};
-  document.getElementById("so").onclick=()=>{const v={recipientName:sn.value.trim(),phone:sp.value.trim(),postalCode:sz.value.trim(),address:sa.value.trim(),addressDetail:sd.value.trim(),deliveryMemo:sm.value.trim()};
-   if(!v.recipientName||!v.phone||!v.address){toast("받는 분, 휴대폰, 주소는 필수입니다.");return}m.remove();resolve(v)};
+  document.body.appendChild(m);
+  m.querySelector("#sc").onclick=()=>{m.remove();resolve(null)};
+  m.querySelector("#so").onclick=()=>{
+    const v={recipientName:m.querySelector("#sn").value.trim(),phone:m.querySelector("#sp").value.trim(),postalCode:m.querySelector("#sz").value.trim(),address:m.querySelector("#sa").value.trim(),addressDetail:m.querySelector("#sd").value.trim(),deliveryMemo:m.querySelector("#sm").value.trim()};
+    if(!v.recipientName||!v.phone||!v.address){toast("받는 분, 휴대폰, 주소는 필수입니다.");return}
+    m.remove();resolve(v);
+  };
  });
 }
 
 async function checkout(){
-  if (!cart.length) return;
-  if (!currentUser) {
-    toast("먼저 Pi 로그인을 해주세요.");
-    return;
+  if (!cart.length || paymentInProgress) return;
+  if (!currentUser) { toast("먼저 Pi 로그인을 해주세요."); return; }
+  if (!piReady) { toast("Pi Sandbox 연결 상태를 확인해주세요."); return; }
+
+  const proceed = await openCartReview();
+  if (!proceed || !cart.length) return;
+  const shipping = await askShippingInfo();
+  if (!shipping) return;
+
+  const orderId = `BLOG24-${Date.now()}`;
+  const expandedItems = [];
+  cart.forEach(p => { for(let i=0;i<(p.qty||1);i++) expandedItems.push({id:p.id}); });
+
+  paymentInProgress = true;
+  const checkoutBtn = document.getElementById("checkoutBtn");
+  checkoutBtn.disabled = true;
+  checkoutBtn.textContent = "결제 준비중";
+
+  try {
+    const draft = await postJSON("/api/orders/draft", {
+      orderId,
+      username: currentUser.username,
+      uid: currentUser.uid,
+      shipping,
+      items: expandedItems
+    });
+    const amount = Number(draft.amount);
+
+    Pi.createPayment({
+      amount,
+      memo: `Blog24 상품 ${expandedItems.length}개 결제`,
+      metadata: { orderId, itemIds: expandedItems.map(x=>x.id) }
+    }, {
+      onReadyForServerApproval: async paymentId => {
+        await approvePayment(paymentId);
+        toast("결제 승인 완료 · Pi Wallet에서 결제를 진행하세요.");
+      },
+      onReadyForServerCompletion: async (paymentId, txid) => {
+        try {
+          await completePayment(paymentId, txid, orderId);
+          cart = [];
+          updateCart();
+          toast(`Testnet 결제 완료: ${amount.toFixed(2)} π`);
+        } finally {
+          paymentInProgress = false;
+          checkoutBtn.disabled = false;
+          checkoutBtn.textContent = "Pi로 결제";
+        }
+      },
+      onCancel: paymentId => {
+        console.log("Payment cancelled:", paymentId);
+        paymentInProgress = false; checkoutBtn.disabled=false; checkoutBtn.textContent="Pi로 결제";
+        toast("결제가 취소되었습니다.");
+      },
+      onError: (error,payment) => {
+        console.error("Pi payment error:",error,payment);
+        paymentInProgress = false; checkoutBtn.disabled=false; checkoutBtn.textContent="Pi로 결제";
+        toast(`Pi 결제 오류: ${error?.message || "알 수 없는 오류"}`);
+      }
+    });
+  } catch(e) {
+    console.error(e);
+    paymentInProgress = false; checkoutBtn.disabled=false; checkoutBtn.textContent="Pi로 결제";
+    toast(`결제를 시작하지 못했습니다: ${e.message}`);
   }
-  // V1.0에서는 실제 createPayment 호출 전 단계까지만 구성.
-  // 다음 단계에서 Render 서버의 Pi API 승인/완료 엔드포인트와 함께 활성화.
-  toast(`결제 준비 완료: ${cartTotal.textContent} π · 다음 단계에서 Testnet 결제 연결`);
 }
 
 document.getElementById("shopBtn").addEventListener("click", () => {
