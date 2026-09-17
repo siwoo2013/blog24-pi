@@ -32,3 +32,13 @@ GitHub 기존 프로젝트에 덮어쓴 뒤 Render 재배포.
 - 송장 등록 후 3일 배송완료, 배송완료 후 7일 자동 구매확정 로직
 - 고객 구매확정 API
 - Push 알림은 차기 버전 예정
+
+## V1.6.2
+- Pi Browser/Android 모바일 모달 하단 잘림 수정
+- 주문자·배송정보 전체 스크롤 및 하단 `주문 확인 및 Pi 결제` 버튼 고정 노출
+- 내 주문내역 전체 스크롤 및 `닫기` 버튼 하단 고정 노출
+- Android safe-area / 하단 내비게이션 영역 대응
+- 기존 Pi Testnet 결제, 장바구니, 주문/배송/관리자 기능 유지
+- 앱 아이콘 `public/images/app-icon.svg` 포함
+- SNS 공유 이미지 `public/images/sns-share.svg` 포함
+- Push 알림은 차기 버전 예정
