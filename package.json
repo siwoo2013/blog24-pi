@@ -1,6 +1,6 @@
 {
   "name": "blog24-pi",
-  "version": "1.6.10",
+  "version": "1.6.20",
   "private": true,
   "description": "Blog24 Pi Browser shopping mall - Pi Testnet starter",
   "main": "server.js",

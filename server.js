@@ -1,4 +1,5 @@
 const express=require("express");
+const XLSX=require("xlsx");
 const path=require("path");
 const crypto=require("crypto");
 const {Pool}=require("pg");
@@ -196,6 +197,37 @@ app.get("/api/orders/:orderId",needDb,async(req,res)=>{
   const i=await pool.query("SELECT * FROM order_items WHERE order_id=$1 ORDER BY id",[req.params.orderId]);res.json({ok:true,order:{...o.rows[0],items:i.rows}});
  }catch(e){res.status(500).json({ok:false,error:e.message})}
 });
+
+app.delete("/api/orders/:orderId/pending",needDb,async(req,res)=>{
+ try{
+  const uid=String(req.body?.uid||req.query.uid||'').trim();
+  if(!uid)return res.status(400).json({ok:false,error:"사용자 정보가 없습니다."});
+  const q=await pool.query("DELETE FROM orders WHERE order_id=$1 AND pi_uid=$2 AND order_status='PENDING' AND payment_status='PENDING' RETURNING order_id",[req.params.orderId,uid]);
+  if(!q.rows.length)return res.status(409).json({ok:false,error:"삭제할 수 있는 결제대기 주문이 아닙니다."});
+  res.json({ok:true});
+ }catch(e){res.status(500).json({ok:false,error:e.message})}
+});
+
+function parseProductWorkbook(base64){
+ const buf=Buffer.from(String(base64||'').replace(/^data:.*?;base64,/,''),'base64');
+ if(!buf.length)throw new Error('엑셀 파일이 비어 있습니다.');
+ const wb=XLSX.read(buf,{type:'buffer'}),ws=wb.Sheets[wb.SheetNames[0]];
+ if(!ws)throw new Error('첫 번째 시트를 읽을 수 없습니다.');
+ return XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+}
+function splitDetailImages(v){return String(v||'').split(/\r?\n|\|/).map(x=>x.trim()).filter(Boolean).map(x=>{const m=x.match(/<img[^>]+src=["']([^"']+)["']/i);return (m?m[1]:x).trim()}).filter(Boolean)}
+function normalizeImportRow(r,rowNo){
+ const g=(...ks)=>{for(const k of ks)if(r[k]!==undefined&&String(r[k]).trim()!=='')return String(r[k]).trim();return ''};
+ const name=g('상품명'),price=Number(g('가격(π)','가격')),category=g('카테고리'),shipping=Number(g('배송비(π)','배송비')||0),stock=Number(g('재고수량','재고')||9999),sortOrder=Number(g('노출순서')||rowNo-1),active=!['N','NO','FALSE','0','숨김','판매중지'].includes(g('판매중').toUpperCase());
+ const options=g('옵션').split(',').map(x=>x.trim()).filter(Boolean);const images=[g('대표이미지 URL 1'),g('이미지 URL 2'),g('이미지 URL 3')].filter(Boolean);const detailImages=splitDetailImages(g('상세페이지 이미지 URL/HTML'));
+ const youtube=g('YouTube URL'),desc=g('간단/상세 설명');const errors=[];
+ if(!name)errors.push('상품명 누락');if(!Number.isFinite(price)||price<0)errors.push('가격 오류');if(!category)errors.push('카테고리 누락');if(!Number.isFinite(shipping)||shipping<0)errors.push('배송비 오류');if(!Number.isFinite(stock)||stock<0||!Number.isInteger(stock))errors.push('재고수량 오류');
+ for(const [label,u] of [['대표이미지',images[0]],['이미지2',images[1]],['이미지3',images[2]],['YouTube',youtube],...detailImages.map((u,i)=>['상세이미지'+(i+1),u])])if(u&&!/^https?:\/\//i.test(u)&&!u.startsWith('/'))errors.push(label+' URL 오류');
+ return {rowNo,name,price,category,shipping,options:options.length?options:['기본'],youtube,images,detailImages,sortOrder:Number.isFinite(sortOrder)?sortOrder:rowNo-1,stock,desc,active,errors};
+}
+async function validateProductImport(base64){const rows=parseProductWorkbook(base64);const normalized=rows.map((r,i)=>normalizeImportRow(r,i+2));const cats=new Set((await pool.query('SELECT name FROM categories')).rows.map(x=>x.name));for(const x of normalized)if(x.category&&!cats.has(x.category))x.errors.push('등록되지 않은 카테고리');return normalized}
+app.post('/api/admin/products-import/validate',needDb,needAdmin,async(req,res)=>{try{const rows=await validateProductImport(req.body?.fileBase64);res.json({ok:true,total:rows.length,valid:rows.filter(x=>!x.errors.length).length,invalid:rows.filter(x=>x.errors.length).length,rows:rows.map(x=>({rowNo:x.rowNo,name:x.name,errors:x.errors}))})}catch(e){res.status(400).json({ok:false,error:e.message})}});
+app.post('/api/admin/products-import/commit',needDb,needAdmin,async(req,res)=>{let c;try{const rows=await validateProductImport(req.body?.fileBase64);const bad=rows.filter(x=>x.errors.length);if(!rows.length)return res.status(400).json({ok:false,error:'등록할 상품이 없습니다.'});if(bad.length)return res.status(400).json({ok:false,error:'검사 오류가 있어 등록하지 않았습니다.',rows:bad.map(x=>({rowNo:x.rowNo,name:x.name,errors:x.errors}))});c=await pool.connect();await c.query('BEGIN');for(const x of rows){const id=Number((await c.query('SELECT COALESCE(MAX(id),0)+1 id FROM products')).rows[0].id),code=`BLOG24-P-${String(id).padStart(6,'0')}`;await c.query(`INSERT INTO products(id,product_code,name,price,shipping,shipping_text,category,description,detail,options,images,detail_images,youtube_url,active,sort_order,stock,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15,$16,NOW())`,[id,code,x.name,x.price,x.shipping,x.shipping?`${x.shipping} π`:'무료배송',x.category,x.desc,x.desc,JSON.stringify(x.options),JSON.stringify(x.images),JSON.stringify(x.detailImages),x.youtube,x.active,x.sortOrder,x.stock])}await c.query('COMMIT');res.json({ok:true,count:rows.length})}catch(e){if(c)try{await c.query('ROLLBACK')}catch{}res.status(500).json({ok:false,error:e.message})}finally{if(c)c.release()}});
 
 app.get("/api/admin/orders",needDb,needAdmin,async(req,res)=>{
   await applyAutomaticOrderStatuses();
