@@ -289,7 +289,7 @@ function openProductDetail(id){
  const m=document.createElement("div");m.className="shipping-modal product-modal";
  const first=thumbImages[0]||images[0]||"";
  m.innerHTML=`<div class="shipping-box product-detail">
- <button class="detail-close" aria-label="상품 상세 닫기">✕</button>
+ <div class="detail-actions detail-actions-top"><button id="detailShare">상품 공유하기</button><button id="detailAdd">장바구니 담기</button><button class="detail-close" aria-label="상품 상세 닫기">✕</button></div>
  <div class="detail-scroll">
  <div class="detail-media">
    ${first?`<img class="detail-main" src="${first}" alt="${p.name}">`:`<div class="detail-icon">${p.icon||"🛍️"}</div>`}
@@ -304,7 +304,6 @@ function openProductDetail(id){
  <label>수량<div class="detail-qty"><button id="dqMinus">−</button><b id="dqValue">1</b><button id="dqPlus">＋</button></div></label>
  ${(p.detailImages||[]).length?`<div class="detail-description-images">${p.detailImages.map(x=>`<img src="${x}" alt="${p.name} 상세설명">`).join("")}</div>`:""}
  </div>
- <div class="detail-actions"><button id="detailShare">상품 공유하기</button><button id="detailAdd">장바구니 담기</button></div>
  </div>`;
  document.body.appendChild(m);let qty=1;
  const main=m.querySelector(".detail-main"),video=m.querySelector(".detail-video-main");

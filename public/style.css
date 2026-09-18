@@ -231,3 +231,76 @@ body.admin-page{padding:0 0 50px;background:#eef1f5}.admin-shell{max-width:1100p
   .product-modal .detail-actions{padding:10px 20px calc(10px + env(safe-area-inset-bottom))!important}
   .product-modal .detail-close{right:18px!important;top:18px!important}
 }
+
+
+/* V1.6.12 - top action bar in product popup + centered desktop storefront header */
+.product-modal .product-detail{
+  grid-template-rows:auto minmax(0,1fr)!important;
+}
+.product-modal .detail-actions-top{
+  position:relative!important;
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr) 52px!important;
+  gap:8px!important;
+  align-items:center!important;
+  margin:0!important;
+  padding:12px 14px!important;
+  padding-top:calc(12px + env(safe-area-inset-top))!important;
+  background:#fff!important;
+  border-top:0!important;
+  border-bottom:1px solid #eee!important;
+  box-shadow:0 5px 16px rgba(0,0,0,.06)!important;
+  z-index:70!important;
+}
+.product-modal .detail-actions-top>button:not(.detail-close){
+  min-width:0!important;
+  min-height:50px!important;
+  border-radius:12px!important;
+  font-weight:900!important;
+}
+.product-modal .detail-actions-top .detail-close{
+  position:static!important;
+  width:52px!important;
+  height:52px!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  border-radius:50%!important;
+  background:#211f22!important;
+  color:#fff!important;
+  font-size:30px!important;
+  line-height:52px!important;
+  box-shadow:0 4px 12px rgba(0,0,0,.18)!important;
+}
+.product-modal .detail-scroll{
+  padding-top:18px!important;
+  scroll-padding-top:18px;
+}
+@media(max-width:699px){
+  .product-modal .detail-actions-top{
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) 46px!important;
+    padding:9px 10px!important;
+    padding-top:calc(9px + env(safe-area-inset-top))!important;
+  }
+  .product-modal .detail-actions-top>button:not(.detail-close){min-height:48px!important;font-size:14px!important;padding:8px 5px!important}
+  .product-modal .detail-actions-top .detail-close{width:46px!important;height:46px!important;line-height:46px!important;font-size:27px!important}
+  .product-modal .detail-scroll{padding:14px 20px 24px!important}
+}
+@media(min-width:900px){
+  body:not(.admin-page)>.topbar{
+    width:min(1320px,calc(100% - 48px));
+    max-width:1320px;
+    margin:0 auto;
+    padding-left:0!important;
+    padding-right:0!important;
+  }
+  body:not(.admin-page)>.store-nav{
+    width:min(1320px,calc(100% - 48px));
+    max-width:1320px;
+    margin:0 auto;
+    padding-left:0!important;
+    padding-right:0!important;
+    justify-content:center!important;
+  }
+  body:not(.admin-page)>.store-nav button{flex:0 0 auto!important;min-width:78px;text-align:center}
+}
