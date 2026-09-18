@@ -38,7 +38,7 @@ window.addToCart = function(id){
   const p = products.find(x => x.id === id);
   const option = p.id === 1 ? "기본" : "기본";
   const found = cart.find(x => x.id === id && x.option === option);
-  if (found) found.qty += 1;
+  if (found) { found.qty += 1; if(!found.addedAt) found.addedAt=Date.now(); }
   else cart.push({...p, option, qty: 1, addedAt:Date.now()});
   saveCart(); updateCart();
   toast(`${p.name} 장바구니에 담음`);
@@ -330,7 +330,7 @@ function openProductDetail(id){
  m.querySelector("#dqMinus").onclick=()=>{qty=Math.max(1,qty-1);m.querySelector("#dqValue").textContent=qty};
  m.querySelector("#dqPlus").onclick=()=>{qty=Math.min(99,qty+1);m.querySelector("#dqValue").textContent=qty};
  m.querySelector("#detailShare").onclick=async()=>{const u=new URL(location.href);u.searchParams.set("product",p.id);const d={title:p.name,text:`${p.name} · ${Number(p.price).toFixed(2)} π`,url:u.toString()};try{if(navigator.share)await navigator.share(d);else{await navigator.clipboard.writeText(d.url);toast("상품 링크를 복사했습니다.");}}catch(e){}};
- m.querySelector("#detailAdd").onclick=()=>{const opt=m.querySelector("#detailOption").value,f=cart.find(x=>x.id===p.id&&(x.option||"기본")===opt);if(f)f.qty=(f.qty||1)+qty;else cart.push({...p,option:opt,qty});updateCart();m.remove();toast(`${p.name} 장바구니에 담음`);};
+ m.querySelector("#detailAdd").onclick=()=>{const opt=m.querySelector("#detailOption").value,f=cart.find(x=>x.id===p.id&&(x.option||"기본")===opt);if(f){f.qty=(f.qty||1)+qty;if(!f.addedAt)f.addedAt=Date.now();}else cart.push({...p,option:opt,qty,addedAt:Date.now()});saveCart();updateCart();m.remove();toast(`${p.name} 장바구니에 담음`);};
 }
 window.openProductDetail=openProductDetail;
 

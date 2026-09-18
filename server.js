@@ -257,7 +257,7 @@ app.get("/api/admin/orders-export.csv",needDb,needAdmin,async(req,res)=>{
   const rows=q.rows.map(o=>[o.order_id,o.ordered_at,o.pi_username,o.recipient_name,o.phone,o.postal_code,o.address,o.address_detail,o.products,o.item_total,o.shipping_total,o.paid_total,o.order_status,o.courier,o.tracking_number,o.payment_id,o.txid].map(esc).join(","));
   res.setHeader("Content-Type","text/csv; charset=utf-8");
   res.setHeader("Content-Disposition",`attachment; filename="blog24-orders-${status}.csv"`);
-  res.send("\\uFEFF"+heads.map(esc).join(",")+"\\n"+rows.join("\\n"));
+  res.send("\uFEFF"+heads.map(esc).join(",")+"\n"+rows.join("\n"));
 });
 
 app.get("*",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")));
