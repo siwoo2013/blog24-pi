@@ -341,3 +341,38 @@ body.admin-page{padding:0 0 50px;background:#eef1f5}.admin-shell{max-width:1100p
   }
   body:not(.admin-page)>.store-nav button{flex:0 0 auto!important;min-width:82px!important;text-align:center!important}
 }
+
+/* V1.6.14 - product popup media: preserve full representative image below top action bar */
+.product-modal .detail-media{
+  width:100%!important;
+  aspect-ratio:1 / 1!important;
+  height:auto!important;
+  background:#fff!important;
+  border-radius:14px!important;
+  overflow:hidden!important;
+  flex:0 0 auto!important;
+}
+.product-modal .detail-media .detail-main{
+  width:100%!important;
+  height:100%!important;
+  object-fit:contain!important;
+  object-position:center center!important;
+  background:#fff!important;
+  display:block!important;
+}
+.product-modal .detail-media .detail-main.hidden{display:none!important}
+.product-modal .detail-video-main{
+  width:100%!important;
+  height:100%!important;
+  object-fit:contain!important;
+  background:#000!important;
+}
+.product-modal .detail-scroll{
+  min-height:0!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+}
+@media(max-width:699px){
+  .product-modal .detail-scroll{padding-top:14px!important}
+  .product-modal .detail-media{aspect-ratio:1 / 1!important}
+}
