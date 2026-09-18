@@ -1,8 +1,8 @@
 let products = [];
-let storeSettings={slideYoutube:"",shortsUrl:""};
+let storeSettings={slideYoutube:"",shortsUrl:"",footerText:"회사명: Blog24\n고객센터: 02-000-8282",copyright:"Copyright © 2026 Blog24. All rights reserved.",terms:"",privacy:""};
 async function loadStoreData(){
  try{const [pr,sr,cr]=await Promise.all([fetch('/api/products').then(r=>r.json()),fetch('/api/store-settings').then(r=>r.json()),fetch('/api/categories').then(r=>r.json())]);if(pr.ok)products=pr.products||[];if(sr.ok)storeSettings=sr.settings||storeSettings;if(cr.ok)renderCategoryNav(cr.categories||[]);}catch(e){console.error(e)}
- renderProducts();setupCategories();setupHero();setupShorts();
+ renderProducts();setupCategories();setupHero();setupShorts();setTimeout(applyFooter,0);
  const shared=Number(new URLSearchParams(location.search).get('product'));if(shared&&products.some(p=>p.id===shared))setTimeout(()=>openProductDetail(shared),250);
 }
 
@@ -267,6 +267,7 @@ initPi();
 loadStoreData();
 
 
+function youtubeVideoId(url){if(!url)return "";try{const u=new URL(url);if(u.hostname.includes("youtu.be"))return u.pathname.replace("/","").split("?")[0];if(u.pathname.includes("/shorts/"))return u.pathname.split("/shorts/")[1].split("/")[0];return u.searchParams.get("v")||""}catch{return ""}}
 function youtubeEmbedUrl(url){
  if(!url)return "";
  try{
@@ -294,7 +295,7 @@ function openProductDetail(id){
  </div>
  <div class="detail-thumbs">
    ${thumbImages.map((x,i)=>`<button class="media-thumb image-thumb" data-src="${x}" aria-label="상품 이미지 ${i+1}"><img src="${x}" alt="상품 이미지 ${i+1}"></button>`).join("")}
-   ${yt?`<button class="media-thumb youtube-thumb" data-youtube="${yt}" aria-label="상품 영상"><span>▶</span><small>YouTube</small></button>`:""}
+   ${yt?`<button class="media-thumb youtube-thumb" data-youtube="${yt}" aria-label="상품 영상"><img src="https://img.youtube.com/vi/${youtubeVideoId(p.youtube||"")}/hqdefault.jpg" alt="상품 영상 미리보기"><span>▶</span></button>`:""}
  </div>
  <h2>${p.name}</h2><p>${p.detail||p.desc||""}</p><b class="detail-price">${Number(p.price).toFixed(2)} π</b>
  <label>옵션<select id="detailOption">${(p.options||["기본"]).map(x=>`<option value="${x}">${x}</option>`).join("")}</select></label>
@@ -340,5 +341,23 @@ updateTopCart();
 // V1.6.7 store UI / category / banner / Shorts
 function renderCategoryNav(cats){const nav=document.querySelector('.store-nav');if(nav)nav.innerHTML='<button class="active" data-cat="전체">홈</button>'+cats.map(c=>`<button data-cat="${c}">${c}</button>`).join('');}
 function setupCategories(){document.querySelectorAll('.store-nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.store-nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');const c=b.dataset.cat||'전체';renderProducts(c==='전체'?products:products.filter(p=>p.category===c));});}
-function setupHero(){const slides=[...document.querySelectorAll('.hero-slide')],yt=youtubeEmbedUrl(storeSettings.slideYoutube||'');let timer=null,i=0,player=null;const track=document.querySelector('.hero-track');const start=()=>{if(timer||slides.length<2)return;timer=setInterval(()=>{i=(i+1)%slides.length;track.style.transform=`translateX(-${i*100}%)`;},5000)},stop=()=>{if(timer){clearInterval(timer);timer=null}};if(yt){const d=document.createElement('div');d.className='hero-slide';const id='heroYT';d.innerHTML=`<iframe id="${id}" src="${yt}${yt.includes('?')?'&':'?'}enablejsapi=1" title="메인 영상" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;track?.appendChild(d);slides.push(d);window.addEventListener('message',e=>{try{const m=typeof e.data==='string'?JSON.parse(e.data):e.data;if(m?.event==='onStateChange'){if(m.info===1||m.info===2)stop();if(m.info===0)start()}}catch{}});setTimeout(()=>{document.getElementById(id)?.contentWindow?.postMessage(JSON.stringify({event:'listening',id}), '*')},1000)}start();}
+function setupHero(){
+ const track=document.querySelector('.hero-track');if(!track)return;let slides=[...track.querySelectorAll('.hero-slide')],i=0,timer=null,videoPlaying=false;
+ const yt=youtubeEmbedUrl(storeSettings.slideYoutube||'');
+ if(yt){const d=document.createElement('div');d.className='hero-slide hero-video-slide';const id='heroYT';d.innerHTML=`<iframe id="${id}" src="${yt}${yt.includes('?')?'&':'?'}enablejsapi=1" title="메인 영상" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;track.appendChild(d);slides=[...track.querySelectorAll('.hero-slide')];setTimeout(()=>document.getElementById(id)?.contentWindow?.postMessage(JSON.stringify({event:'listening',id}),'*'),800)}
+ const go=n=>{i=(n+slides.length)%slides.length;track.style.transform=`translateX(-${i*100}%)`};
+ const stop=()=>{if(timer){clearInterval(timer);timer=null}};
+ const start=()=>{stop();if(videoPlaying||slides.length<2)return;timer=setInterval(()=>go(i+1),5000)};
+ let sx=0,sy=0;track.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;stop()},{passive:true});track.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)){go(i+(dx<0?1:-1));videoPlaying=false;start()}else if(!videoPlaying)start()},{passive:true});
+ window.addEventListener('message',e=>{try{const m=typeof e.data==='string'?JSON.parse(e.data):e.data;if(m?.event==='onStateChange'){if(m.info===1||m.info===2){videoPlaying=true;stop()}if(m.info===0){videoPlaying=false;start()}}}catch{}});start();
+}
 function setupShorts(){const b=document.getElementById('quickShorts');if(!b)return;const u=storeSettings.shortsUrl||'';b.classList.toggle('hidden',!u);if(!u)return;let id='';try{const x=new URL(u);if(x.pathname.includes('/shorts/'))id=x.pathname.split('/shorts/')[1].split('/')[0];else id=x.searchParams.get('v')||''}catch{}if(id)b.innerHTML=`<img src="https://img.youtube.com/vi/${id}/hqdefault.jpg" alt="Shorts"><span>▶</span>`;b.onclick=()=>{const y=youtubeEmbedUrl(u);if(!y)return;const m=document.createElement('div');m.className='shorts-modal';m.innerHTML=`<div class="shorts-player"><button>✕</button><iframe src="${y}" allowfullscreen></iframe></div>`;document.body.appendChild(m);m.querySelector('button').onclick=()=>m.remove();};}
+
+// V1.6.9 install / footer / policy / lively Shorts
+let deferredInstallPrompt=null;const installBtn=document.getElementById('installBtn');
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;if(installBtn)installBtn.classList.remove('hidden')});
+if(installBtn)installBtn.onclick=async()=>{if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;installBtn.classList.add('hidden')}else toast('브라우저 메뉴의 홈 화면에 추가/앱 설치를 이용해주세요.')};
+function policyModal(title,text){const m=document.createElement('div');m.className='shipping-modal';m.innerHTML=`<div class="shipping-box policy-box"><h2>${title}</h2><div class="policy-text"></div><div class="shipping-actions"><button>닫기</button></div></div>`;m.querySelector('.policy-text').textContent=text||'내용을 준비 중입니다.';document.body.appendChild(m);m.querySelector('button').onclick=()=>m.remove()}
+function applyFooter(){const f=document.getElementById('footerCopy'),c=document.getElementById('footerCopyright');if(f)f.textContent=storeSettings.footerText||'';if(c)c.textContent=storeSettings.copyright||'';document.getElementById('termsBtn')?.addEventListener('click',()=>policyModal('이용약관',storeSettings.terms));document.getElementById('privacyBtn')?.addEventListener('click',()=>policyModal('개인정보처리방침',storeSettings.privacy));}
+setTimeout(applyFooter,700);
+window.addEventListener('scroll',()=>{const q=document.getElementById('quickShorts');if(!q||q.classList.contains('hidden'))return;const y=Math.max(-36,Math.min(36,(window.scrollY%500-250)*.10));q.style.transform=`translateY(${y}px)`},{passive:true});
