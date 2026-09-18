@@ -282,9 +282,10 @@ function youtubeEmbedUrl(url){
 }
 function openProductDetail(id){
  const p=products.find(x=>x.id===id);if(!p)return;
- const images=(p.images||[]).slice(0,3);
+ const images=(p.images||[]).filter(Boolean).slice(0,3);
  const yt=youtubeEmbedUrl(p.youtube||"");
- const thumbImages=yt?images.slice(0,2):images.slice(0,3);
+ // V1.6.10: 대표이미지(images[0])는 영상 유무와 관계없이 항상 첫 슬롯에 보존한다.
+ const thumbImages=yt ? images.slice(0,2) : images.slice(0,3);
  const m=document.createElement("div");m.className="shipping-modal product-modal";
  const first=thumbImages[0]||images[0]||"";
  m.innerHTML=`<div class="shipping-box product-detail">
@@ -355,8 +356,15 @@ function setupShorts(){const b=document.getElementById('quickShorts');if(!b)retu
 
 // V1.6.9 install / footer / policy / lively Shorts
 let deferredInstallPrompt=null;const installBtn=document.getElementById('installBtn');
-window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;if(installBtn)installBtn.classList.remove('hidden')});
-if(installBtn)installBtn.onclick=async()=>{if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;installBtn.classList.add('hidden')}else toast('브라우저 메뉴의 홈 화면에 추가/앱 설치를 이용해주세요.')};
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;});
+if(installBtn)installBtn.onclick=async()=>{
+ if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;return;}
+ const ua=navigator.userAgent||'';
+ if(/KAKAOTALK/i.test(ua)) alert('카카오톡 브라우저에서는 오른쪽 위 메뉴에서 다른 브라우저로 열기 후, 브라우저 메뉴의 홈 화면에 추가를 선택해주세요.');
+ else if(/SamsungBrowser/i.test(ua)) alert('삼성 인터넷 메뉴(≡)에서 현재 페이지 추가 → 홈 화면을 선택해주세요.');
+ else if(/Chrome/i.test(ua)) alert('Chrome 메뉴(⋮)에서 홈 화면에 추가 또는 앱 설치를 선택해주세요.');
+ else alert('브라우저 메뉴에서 홈 화면에 추가 또는 앱 설치를 선택해주세요.');
+};
 function policyModal(title,text){const m=document.createElement('div');m.className='shipping-modal';m.innerHTML=`<div class="shipping-box policy-box"><h2>${title}</h2><div class="policy-text"></div><div class="shipping-actions"><button>닫기</button></div></div>`;m.querySelector('.policy-text').textContent=text||'내용을 준비 중입니다.';document.body.appendChild(m);m.querySelector('button').onclick=()=>m.remove()}
 function applyFooter(){const f=document.getElementById('footerCopy'),c=document.getElementById('footerCopyright');if(f)f.textContent=storeSettings.footerText||'';if(c)c.textContent=storeSettings.copyright||'';document.getElementById('termsBtn')?.addEventListener('click',()=>policyModal('이용약관',storeSettings.terms));document.getElementById('privacyBtn')?.addEventListener('click',()=>policyModal('개인정보처리방침',storeSettings.privacy));}
 setTimeout(applyFooter,700);
