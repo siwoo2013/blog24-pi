@@ -359,3 +359,45 @@ updateTopCart();
  syncVisibleViewport(); window.addEventListener("resize",syncVisibleViewport,{passive:true});
  if(window.visualViewport){visualViewport.addEventListener("resize",syncVisibleViewport,{passive:true});visualViewport.addEventListener("scroll",syncVisibleViewport,{passive:true});}
 })();
+
+// ===== V1.6.6 Product Share =====
+async function shareProductV166(product){
+  const title = product?.name || product?.title || "Blog24 상품";
+  const price = product?.price != null ? `${product.price} π` : "";
+  const text = `${title}${price ? " · " + price : ""}`;
+  const url = location.href.split("#")[0];
+
+  try{
+    if(navigator.share){
+      await navigator.share({title, text, url});
+      return;
+    }
+  }catch(e){
+    if(e && e.name === "AbortError") return;
+  }
+
+  try{
+    await navigator.clipboard.writeText(`${text}\n${url}`);
+    if(typeof toast==="function") toast("상품 링크를 복사했습니다. 카카오톡에서 공유해 주세요.");
+    else alert("상품 링크를 복사했습니다.");
+  }catch(e){
+    prompt("상품 링크를 복사해 공유해 주세요.", `${text}\n${url}`);
+  }
+}
+
+// 기존 공유 버튼을 캡처 단계에서 통일 처리
+document.addEventListener("click", function(e){
+  const b=e.target.closest("button");
+  if(!b) return;
+  const t=(b.textContent||"").replace(/\s+/g," ").trim();
+  if(t!=="상품 공유하기") return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+
+  let product=null;
+  try{
+    if(typeof selectedProduct!=="undefined") product=selectedProduct;
+    else if(typeof currentProduct!=="undefined") product=currentProduct;
+  }catch(_){}
+  shareProductV166(product);
+}, true);
