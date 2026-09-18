@@ -36,7 +36,7 @@ function toast(message){
 function renderProducts(){
   grid.innerHTML = products.map(p => `
     <article class="card" onclick="openProductDetail(${p.id})">
-      <div class="product-img">${p.icon}</div>
+      <div class="product-img"><img src="${(p.images&&p.images[0])||'/images/sample-1.svg'}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover"></div>
       <div class="card-body">
         <h3>${p.name}</h3>
         <div class="desc">${p.desc}</div>
@@ -360,44 +360,6 @@ updateTopCart();
  if(window.visualViewport){visualViewport.addEventListener("resize",syncVisibleViewport,{passive:true});visualViewport.addEventListener("scroll",syncVisibleViewport,{passive:true});}
 })();
 
-// ===== V1.6.6 Product Share =====
-async function shareProductV166(product){
-  const title = product?.name || product?.title || "Blog24 상품";
-  const price = product?.price != null ? `${product.price} π` : "";
-  const text = `${title}${price ? " · " + price : ""}`;
-  const url = location.href.split("#")[0];
-
-  try{
-    if(navigator.share){
-      await navigator.share({title, text, url});
-      return;
-    }
-  }catch(e){
-    if(e && e.name === "AbortError") return;
-  }
-
-  try{
-    await navigator.clipboard.writeText(`${text}\n${url}`);
-    if(typeof toast==="function") toast("상품 링크를 복사했습니다. 카카오톡에서 공유해 주세요.");
-    else alert("상품 링크를 복사했습니다.");
-  }catch(e){
-    prompt("상품 링크를 복사해 공유해 주세요.", `${text}\n${url}`);
-  }
-}
-
-// 기존 공유 버튼을 캡처 단계에서 통일 처리
-document.addEventListener("click", function(e){
-  const b=e.target.closest("button");
-  if(!b) return;
-  const t=(b.textContent||"").replace(/\s+/g," ").trim();
-  if(t!=="상품 공유하기") return;
-  e.preventDefault();
-  e.stopImmediatePropagation();
-
-  let product=null;
-  try{
-    if(typeof selectedProduct!=="undefined") product=selectedProduct;
-    else if(typeof currentProduct!=="undefined") product=currentProduct;
-  }catch(_){}
-  shareProductV166(product);
-}, true);
+// V1.6.6 store navigation / Shorts quick banner
+document.querySelectorAll('.store-nav button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.store-nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById('products')?.scrollIntoView({behavior:'smooth'});}));
+document.getElementById('quickShorts')?.addEventListener('click',()=>toast('쇼츠 URL 등록 시 이 퀵배너에서 바로 재생됩니다.'));
