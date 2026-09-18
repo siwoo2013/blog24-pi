@@ -302,7 +302,7 @@ function openProductDetail(id){
  <h2>${p.name}</h2><p>${p.detail||p.desc||""}</p><b class="detail-price">${Number(p.price).toFixed(2)} π</b>
  <label>옵션<select id="detailOption">${(p.options||["기본"]).map(x=>`<option value="${x}">${x}</option>`).join("")}</select></label>
  <label>수량<div class="detail-qty"><button id="dqMinus">−</button><b id="dqValue">1</b><button id="dqPlus">＋</button></div></label>
- ${(p.detailImages||[]).length?`<div class="detail-description-images">${p.detailImages.map(x=>`<img src="${x}" alt="${p.name} 상세설명">`).join("")}</div>`:""}
+ ${(p.detailImages||[]).length?`<div class="detail-description-images">${p.detailImages.map(x=>`<img src="${x}" alt="${p.name} 상세설명">`).join("")}</div>`:`<div class="detail-description-placeholder" aria-hidden="true"></div>`}
  </div>
  </div>`;
  document.body.appendChild(m);let qty=1;
