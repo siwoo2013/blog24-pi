@@ -376,3 +376,5 @@ body.admin-page{padding:0 0 50px;background:#eef1f5}.admin-shell{max-width:1100p
   .product-modal .detail-scroll{padding-top:14px!important}
   .product-modal .detail-media{aspect-ratio:1 / 1!important}
 }
+
+.cart-expire,.pending-timer{display:block;margin-top:5px;font-size:11px;color:#b45309;font-weight:800}.order-actions{display:flex;gap:8px;margin-top:10px}.order-actions button,.tracking-link{border:0;border-radius:8px;padding:8px 10px;font-weight:800}.tracking-link{background:#eef6ff;color:#145ea8}.managed-banner{display:block;width:100%;max-width:1320px;margin:auto;border-radius:18px}.content-row{grid-template-columns:minmax(0,1fr) 70px auto auto!important}

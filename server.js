@@ -18,7 +18,7 @@ async function effectiveProducts(){
  try{
   const r=await pool.query("SELECT * FROM products ORDER BY sort_order,id");
   if(!r.rows.length)return DEFAULT_PRODUCTS;
-  return r.rows.map(x=>({id:x.id,name:x.name,price:Number(x.price),shipping:Number(x.shipping||0),shippingText:x.shipping_text||'',category:x.category||'기타',desc:x.description||'',detail:x.detail||'',options:x.options||['기본'],images:x.images||[],detailImages:x.detail_images||[],youtube:x.youtube_url||'',active:x.active!==false,sortOrder:x.sort_order||x.id}));
+  return r.rows.map(x=>({id:x.id,name:x.name,price:Number(x.price),shipping:Number(x.shipping||0),shippingText:x.shipping_text||'',category:x.category||'기타',desc:x.description||'',detail:x.detail||'',options:x.options||['기본'],images:x.images||[],detailImages:x.detail_images||[],youtube:x.youtube_url||'',active:x.active!==false,sortOrder:x.sort_order||x.id,stock:Number.isFinite(Number(x.stock))?Number(x.stock):9999}));
  }catch(e){console.error('products fallback',e.message);return DEFAULT_PRODUCTS}
 }
 async function effectiveProduct(id){return (await effectiveProducts()).find(x=>Number(x.id)===Number(id));}
@@ -51,9 +51,9 @@ async function initDb(){
   id INT PRIMARY KEY,name TEXT NOT NULL,price NUMERIC(18,7) NOT NULL DEFAULT 0,shipping NUMERIC(18,7) NOT NULL DEFAULT 0,
   shipping_text TEXT,category TEXT,description TEXT,detail TEXT,options JSONB NOT NULL DEFAULT '["기본"]'::jsonb,
   images JSONB NOT NULL DEFAULT '[]'::jsonb,detail_images JSONB NOT NULL DEFAULT '[]'::jsonb,youtube_url TEXT,
-  active BOOLEAN NOT NULL DEFAULT TRUE,sort_order INT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+  active BOOLEAN NOT NULL DEFAULT TRUE,sort_order INT NOT NULL DEFAULT 0,stock INT NOT NULL DEFAULT 9999,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
  CREATE TABLE IF NOT EXISTS store_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '',updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
- CREATE TABLE IF NOT EXISTS categories(name TEXT PRIMARY KEY,active BOOLEAN NOT NULL DEFAULT TRUE,sort_order INT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+ CREATE TABLE IF NOT EXISTS categories(name TEXT PRIMARY KEY,active BOOLEAN NOT NULL DEFAULT TRUE,sort_order INT NOT NULL DEFAULT 0,stock INT NOT NULL DEFAULT 9999,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
  `);
  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS orderer_name TEXT");
  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS orderer_phone TEXT");
@@ -68,18 +68,21 @@ async function ensureV16Schema(){
   if(!pool) return;
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS auto_deliver_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS auto_confirm_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS pending_expires_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS stock INT NOT NULL DEFAULT 9999`);
 }
 async function applyAutomaticOrderStatuses(){
   if(!pool) return;
+  await pool.query(`DELETE FROM orders WHERE order_status='PENDING' AND payment_status='PENDING' AND COALESCE(pending_expires_at,ordered_at+INTERVAL '6 hours') <= NOW()`);
   await pool.query(`UPDATE orders
     SET order_status='DELIVERED', delivered_at=COALESCE(delivered_at,NOW()),
-        auto_confirm_at=COALESCE(auto_confirm_at,NOW()+INTERVAL '7 days')
+        auto_confirm_at=COALESCE(auto_confirm_at,NOW()+INTERVAL '5 days')
     WHERE order_status='SHIPPED' AND shipped_at IS NOT NULL
       AND shipped_at <= NOW()-INTERVAL '3 days'`);
   await pool.query(`UPDATE orders
     SET order_status='CONFIRMED', confirmed_at=COALESCE(confirmed_at,NOW())
     WHERE order_status='DELIVERED' AND delivered_at IS NOT NULL
-      AND delivered_at <= NOW()-INTERVAL '7 days'`);
+      AND delivered_at <= NOW()-INTERVAL '5 days'`);
 }
 
 function needKey(req,res,next){if(!PI_API_KEY)return res.status(500).json({ok:false,error:"PI_API_KEY missing"});next()}
@@ -97,16 +100,16 @@ async function piPost(ep,body){
 }
 app.get("/api/products",async(req,res)=>{let products=(await effectiveProducts()).filter(x=>x.active!==false);if(pool){try{const r=await pool.query("SELECT name FROM categories WHERE active=TRUE");const visible=new Set(r.rows.map(x=>x.name));products=products.filter(x=>visible.has(x.category));}catch(e){console.error(e.message)}}res.json({ok:true,products});});
 app.get("/api/categories",async(req,res)=>{let categories=["생활","디지털","패션","식품","뷰티","기타"];if(pool){try{const r=await pool.query("SELECT name FROM categories WHERE active=TRUE ORDER BY sort_order,name");categories=r.rows.map(x=>x.name)}catch{}}res.json({ok:true,categories});});
-app.get("/api/store-settings",async(req,res)=>{let settings={slideYoutube:"",shortsUrl:"",footerText:"회사명: Blog24\n고객센터: 02-000-8282",copyright:"Copyright © 2026 Blog24. All rights reserved.",terms:"제1조(목적)\n본 약관은 Blog24 쇼핑몰의 서비스 이용 조건과 절차를 정합니다.\n\n제2조(주문 및 결제)\n상품 주문, 결제, 배송 및 취소는 화면에 표시된 절차와 관련 법령에 따릅니다.\n\n제3조(환불)\n환불 및 교환은 상품 특성과 관련 법령, 판매자가 고지한 기준에 따릅니다.",privacy:"Blog24는 주문 처리와 배송을 위해 필요한 범위에서 개인정보를 처리합니다.\n\n수집 항목: 주문자/수령인 이름, 연락처, 배송지, 주문 및 결제 식별정보\n이용 목적: 주문 확인, 결제 확인, 배송, 고객 문의 처리\n보유 기간: 관련 법령 및 운영상 필요한 기간 동안 보관 후 파기합니다.\n\n이 기본 문안은 운영자가 실제 사업 내용과 적용 법령에 맞게 검토·수정해야 합니다."};if(pool){try{const r=await pool.query("SELECT key,value FROM store_settings");for(const x of r.rows)settings[x.key]=x.value}catch{}}res.json({ok:true,settings});});
+app.get("/api/store-settings",async(req,res)=>{let settings={slideYoutube:"",shortsUrl:"",slidesJson:"[]",slideTime:"5",homeSectionsJson:"[]",footerText:"회사명: Blog24\n고객센터: 02-000-8282",copyright:"Copyright © 2026 Blog24. All rights reserved.",terms:"제1조(목적)\n본 약관은 Blog24 쇼핑몰의 서비스 이용 조건과 절차를 정합니다.\n\n제2조(주문 및 결제)\n상품 주문, 결제, 배송 및 취소는 화면에 표시된 절차와 관련 법령에 따릅니다.\n\n제3조(환불)\n환불 및 교환은 상품 특성과 관련 법령, 판매자가 고지한 기준에 따릅니다.",privacy:"Blog24는 주문 처리와 배송을 위해 필요한 범위에서 개인정보를 처리합니다.\n\n수집 항목: 주문자/수령인 이름, 연락처, 배송지, 주문 및 결제 식별정보\n이용 목적: 주문 확인, 결제 확인, 배송, 고객 문의 처리\n보유 기간: 관련 법령 및 운영상 필요한 기간 동안 보관 후 파기합니다.\n\n이 기본 문안은 운영자가 실제 사업 내용과 적용 법령에 맞게 검토·수정해야 합니다."};if(pool){try{const r=await pool.query("SELECT key,value FROM store_settings");for(const x of r.rows)settings[x.key]=x.value}catch{}}res.json({ok:true,settings});});
 app.get("/api/admin/products",needDb,needAdmin,async(req,res)=>res.json({ok:true,products:await effectiveProducts()}));
 app.get("/api/admin/categories",needDb,needAdmin,async(req,res)=>{const r=await pool.query("SELECT name,active,sort_order FROM categories ORDER BY sort_order,name");res.json({ok:true,categories:r.rows})});
-app.post("/api/admin/categories",needDb,needAdmin,async(req,res)=>{try{const c=req.body||{};const old=String(c.oldName||c.name||'').trim(),name=String(c.name||'').trim();if(!name)return res.status(400).json({ok:false,error:'카테고리명을 입력하세요.'});if(old&&old!==name){await pool.query("UPDATE products SET category=$1 WHERE category=$2",[name,old]);await pool.query("DELETE FROM categories WHERE name=$1",[old]);}await pool.query("INSERT INTO categories(name,active,sort_order,updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT(name) DO UPDATE SET active=EXCLUDED.active,sort_order=EXCLUDED.sort_order,updated_at=NOW()",[name,c.active!==false,Number(c.sortOrder)||0]);res.json({ok:true})}catch(e){res.status(500).json({ok:false,error:e.message})}});
+app.post("/api/admin/categories",needDb,needAdmin,async(req,res)=>{try{const c=req.body||{};const old=String(c.oldName||c.name||'').trim(),name=String(c.name||'').trim();if(!name)return res.status(400).json({ok:false,error:'카테고리명을 입력하세요.'});if(old&&old!==name){await pool.query("UPDATE products SET category=$1 WHERE category=$2",[name,old]);await pool.query("DELETE FROM categories WHERE name=$1",[old]);}await pool.query("INSERT INTO categories(name,active,sort_order,updated_at) VALUES($1,$2,$3,NOW()) ON CONFLICT(name) DO UPDATE SET active=EXCLUDED.active,sort_order=EXCLUDED.sort_order,stock=EXCLUDED.stock,updated_at=NOW()",[name,c.active!==false,Number(c.sortOrder)||0]);res.json({ok:true})}catch(e){res.status(500).json({ok:false,error:e.message})}});
 app.delete("/api/admin/categories/:name",needDb,needAdmin,async(req,res)=>{const name=decodeURIComponent(req.params.name);const n=Number((await pool.query("SELECT COUNT(*)::int n FROM products WHERE category=$1",[name])).rows[0].n);if(n)return res.status(400).json({ok:false,error:`등록 상품 ${n}개가 있어 삭제할 수 없습니다. 숨김을 사용하세요.`});await pool.query("DELETE FROM categories WHERE name=$1",[name]);res.json({ok:true})});
-app.post("/api/admin/products",needDb,needAdmin,async(req,res)=>{try{const p=req.body||{};const id=Number(p.id)||Number((await pool.query("SELECT COALESCE(MAX(id),0)+1 id FROM products")).rows[0].id);await pool.query(`INSERT INTO products(id,name,price,shipping,shipping_text,category,description,detail,options,images,detail_images,youtube_url,active,sort_order,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14,NOW()) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,price=EXCLUDED.price,shipping=EXCLUDED.shipping,shipping_text=EXCLUDED.shipping_text,category=EXCLUDED.category,description=EXCLUDED.description,detail=EXCLUDED.detail,options=EXCLUDED.options,images=EXCLUDED.images,detail_images=EXCLUDED.detail_images,youtube_url=EXCLUDED.youtube_url,active=EXCLUDED.active,sort_order=EXCLUDED.sort_order,updated_at=NOW()`,[id,p.name||'상품',Number(p.price)||0,Number(p.shipping)||0,p.shippingText||'',p.category||'기타',p.desc||'',p.detail||'',JSON.stringify(p.options||['기본']),JSON.stringify(p.images||[]),JSON.stringify(p.detailImages||[]),p.youtube||'',p.active!==false,Number(p.sortOrder)||id]);res.json({ok:true,id})}catch(e){res.status(500).json({ok:false,error:e.message})}});
+app.post("/api/admin/products",needDb,needAdmin,async(req,res)=>{try{const p=req.body||{};const id=Number(p.id)||Number((await pool.query("SELECT COALESCE(MAX(id),0)+1 id FROM products")).rows[0].id);await pool.query(`INSERT INTO products(id,name,price,shipping,shipping_text,category,description,detail,options,images,detail_images,youtube_url,active,sort_order,stock,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14,$15,NOW()) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,price=EXCLUDED.price,shipping=EXCLUDED.shipping,shipping_text=EXCLUDED.shipping_text,category=EXCLUDED.category,description=EXCLUDED.description,detail=EXCLUDED.detail,options=EXCLUDED.options,images=EXCLUDED.images,detail_images=EXCLUDED.detail_images,youtube_url=EXCLUDED.youtube_url,active=EXCLUDED.active,sort_order=EXCLUDED.sort_order,stock=EXCLUDED.stock,updated_at=NOW()`,[id,p.name||'상품',Number(p.price)||0,Number(p.shipping)||0,p.shippingText||'',p.category||'기타',p.desc||'',p.detail||'',JSON.stringify(p.options||['기본']),JSON.stringify(p.images||[]),JSON.stringify(p.detailImages||[]),p.youtube||'',p.active!==false,Number(p.sortOrder)||id,Number.isFinite(Number(p.stock))?Math.max(0,Math.floor(Number(p.stock))):9999]);res.json({ok:true,id})}catch(e){res.status(500).json({ok:false,error:e.message})}});
 app.get("/api/admin/products/:id/delete-check",needDb,needAdmin,async(req,res)=>{const id=Number(req.params.id);const r=await pool.query("SELECT COUNT(DISTINCT order_id)::int n FROM order_items WHERE product_id=$1",[id]);res.json({ok:true,orderCount:Number(r.rows[0]?.n||0)})});
 app.delete("/api/admin/products/:id",needDb,needAdmin,async(req,res)=>{await pool.query("DELETE FROM products WHERE id=$1",[Number(req.params.id)]);res.json({ok:true})});
 app.post("/api/admin/seed-products",needDb,needAdmin,async(req,res)=>{try{for(const p of DEFAULT_PRODUCTS){await pool.query(`INSERT INTO products(id,name,price,shipping,shipping_text,category,description,detail,options,images,detail_images,youtube_url,active,sort_order) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14) ON CONFLICT(id) DO NOTHING`,[p.id,p.name,p.price,p.shipping,p.shippingText,p.category,p.desc,p.detail,JSON.stringify(p.options),JSON.stringify(p.images),JSON.stringify(p.detailImages),p.youtube,p.active,p.sortOrder])}res.json({ok:true})}catch(e){res.status(500).json({ok:false,error:e.message})}});
-app.post("/api/admin/store-settings",needDb,needAdmin,async(req,res)=>{try{for(const [k,v] of Object.entries(req.body||{})){if(!['slideYoutube','shortsUrl','footerText','copyright','terms','privacy'].includes(k))continue;await pool.query("INSERT INTO store_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()",[k,String(v||'')])}res.json({ok:true})}catch(e){res.status(500).json({ok:false,error:e.message})}});
+app.post("/api/admin/store-settings",needDb,needAdmin,async(req,res)=>{try{for(const [k,v] of Object.entries(req.body||{})){if(!['slideYoutube','shortsUrl','slidesJson','slideTime','homeSectionsJson','footerText','copyright','terms','privacy'].includes(k))continue;await pool.query("INSERT INTO store_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()",[k,String(v||'')])}res.json({ok:true})}catch(e){res.status(500).json({ok:false,error:e.message})}});
 
 app.get("/health",(req,res)=>res.json({ok:true,app:"Blog24",network:"Pi Testnet",piApiConfigured:!!PI_API_KEY,databaseConfigured:!!pool}));
 
@@ -117,14 +120,14 @@ app.post("/api/orders/draft",needDb,async(req,res)=>{
    return res.status(400).json({ok:false,error:"주문/배송 정보가 부족합니다."});
   let itemTotal=0,shippingTotal=0; const verified=[];
   for(const x of items){
-   const p=await effectiveProduct(Number(x.id)); if(!p||p.active===false)return res.status(400).json({ok:false,error:"잘못된 상품입니다."});
+   const p=await effectiveProduct(Number(x.id)); if(!p||p.active===false)return res.status(400).json({ok:false,error:"판매중이 아닌 상품입니다."}); if(Number(p.stock)<Number(x.qty||1))return res.status(409).json({ok:false,error:`${p.name} 재고가 부족합니다.`});
    const qty=Math.max(1,Math.min(99,Number(x.qty)||1)), option=String(x.option||"기본").slice(0,100);
    itemTotal+=p.price*qty; shippingTotal+=p.shipping*qty; verified.push({...p,qty,option});
   }
   const total=Number((itemTotal+shippingTotal).toFixed(7)),c=await pool.connect();
   try{await c.query("BEGIN");
-   await c.query(`INSERT INTO orders(order_id,pi_username,pi_uid,orderer_name,orderer_phone,recipient_name,phone,postal_code,address,address_detail,delivery_memo,item_total,shipping_total,paid_total)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(order_id) DO NOTHING`,
+   await c.query(`INSERT INTO orders(order_id,pi_username,pi_uid,orderer_name,orderer_phone,recipient_name,phone,postal_code,address,address_detail,delivery_memo,item_total,shipping_total,paid_total,pending_expires_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW()+INTERVAL '6 hours') ON CONFLICT(order_id) DO NOTHING`,
     [orderId,username||null,uid||null,shipping.ordererName||null,shipping.ordererPhone||null,shipping.recipientName,shipping.phone,shipping.postalCode||null,shipping.address,shipping.addressDetail||null,shipping.deliveryMemo||null,itemTotal,shippingTotal,total]);
    const exists=await c.query("SELECT COUNT(*)::int n FROM order_items WHERE order_id=$1",[orderId]);
    if(Number(exists.rows[0].n)===0) for(const p of verified) await c.query(`INSERT INTO order_items(order_id,product_id,product_name,product_option,quantity,unit_price,shipping_fee)
@@ -158,6 +161,7 @@ app.post("/api/pi/payments/:paymentId/complete",needKey,async(req,res)=>{
 
 
 app.get("/api/orders/mine",needDb,async(req,res)=>{
+ try{await applyAutomaticOrderStatuses();}catch(e){console.error(e)}
  try{
   const uid=String(req.query.uid||"").trim();
   if(!uid)return res.status(400).json({ok:false,error:"uid required"});
@@ -167,6 +171,7 @@ app.get("/api/orders/mine",needDb,async(req,res)=>{
 });
 
 app.get("/api/orders/:orderId",needDb,async(req,res)=>{
+ try{await applyAutomaticOrderStatuses();}catch(e){console.error(e)}
  try{const uid=String(req.query.uid||"").trim();if(!uid)return res.status(400).json({ok:false,error:"uid required"});
   const o=await pool.query("SELECT * FROM orders WHERE order_id=$1 AND pi_uid=$2",[req.params.orderId,uid]);if(!o.rows.length)return res.status(404).json({ok:false,error:"주문을 찾을 수 없습니다."});
   const i=await pool.query("SELECT * FROM order_items WHERE order_id=$1 ORDER BY id",[req.params.orderId]);res.json({ok:true,order:{...o.rows[0],items:i.rows}});
@@ -194,6 +199,7 @@ app.post("/api/admin/orders/:orderId/ship",needDb,needAdmin,async(req,res)=>{
  const {courier,trackingNumber}=req.body||{};if(!trackingNumber)return res.status(400).json({ok:false,error:"송장번호 필요"});
  await pool.query("UPDATE orders SET order_status='SHIPPED',courier=$1,tracking_number=$2,shipped_at=NOW(),auto_deliver_at=NOW()+INTERVAL '3 days' WHERE order_id=$3",[courier||null,trackingNumber,req.params.orderId]);res.json({ok:true});
 });
+app.post("/api/admin/orders/:orderId/delivered",needDb,needAdmin,async(req,res)=>{const q=await pool.query("UPDATE orders SET order_status='DELIVERED',delivered_at=NOW(),auto_confirm_at=NOW()+INTERVAL '5 days' WHERE order_id=$1 AND order_status='SHIPPED' RETURNING order_id",[req.params.orderId]);if(!q.rows.length)return res.status(409).json({ok:false,error:'배송중 주문만 배송완료 처리할 수 있습니다.'});res.json({ok:true});});
 app.post("/api/refunds/request",needDb,async(req,res)=>{
  try{
   const {orderId,orderItemId,refundWallet,reason}=req.body||{};if(!orderId||!refundWallet)return res.status(400).json({ok:false,error:"주문번호/환불지갑 필요"});

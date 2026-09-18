@@ -2,11 +2,17 @@ let products = [];
 let storeSettings={slideYoutube:"",shortsUrl:"",footerText:"회사명: Blog24\n고객센터: 02-000-8282",copyright:"Copyright © 2026 Blog24. All rights reserved.",terms:"",privacy:""};
 async function loadStoreData(){
  try{const [pr,sr,cr]=await Promise.all([fetch('/api/products').then(r=>r.json()),fetch('/api/store-settings').then(r=>r.json()),fetch('/api/categories').then(r=>r.json())]);if(pr.ok)products=pr.products||[];if(sr.ok)storeSettings=sr.settings||storeSettings;if(cr.ok)renderCategoryNav(cr.categories||[]);}catch(e){console.error(e)}
- renderProducts();setupCategories();setupHero();setupShorts();setTimeout(applyFooter,0);
+ renderProducts();setupCategories();setupHero();setupShorts();renderHomeSections();setTimeout(applyFooter,0);
  const shared=Number(new URLSearchParams(location.search).get('product'));if(shared&&products.some(p=>p.id===shared))setTimeout(()=>openProductDetail(shared),250);
 }
 
+const CART_TTL_MS=6*60*60*1000;
 let cart = [];
+try{cart=JSON.parse(localStorage.getItem("blog24_cart")||"[]")}catch{cart=[]}
+function purgeExpiredCart(){const now=Date.now();cart=cart.filter(x=>now-Number(x.addedAt||0)<CART_TTL_MS);saveCart()}
+function saveCart(){try{localStorage.setItem("blog24_cart",JSON.stringify(cart))}catch{}}
+function leftHms(ms){ms=Math.max(0,ms);const t=Math.floor(ms/1000),h=Math.floor(t/3600),m=Math.floor((t%3600)/60),sec=t%60;return [h,m,sec].map(x=>String(x).padStart(2,"0")).join(":")}
+purgeExpiredCart();
 let piReady = false;
 let currentUser = null;
 let paymentInProgress = false;
@@ -33,17 +39,19 @@ window.addToCart = function(id){
   const option = p.id === 1 ? "기본" : "기본";
   const found = cart.find(x => x.id === id && x.option === option);
   if (found) found.qty += 1;
-  else cart.push({...p, option, qty: 1});
-  updateCart();
+  else cart.push({...p, option, qty: 1, addedAt:Date.now()});
+  saveCart(); updateCart();
   toast(`${p.name} 장바구니에 담음`);
 }
 
 
 function updateCart(){
+  purgeExpiredCart();
   const total = cart.reduce((sum,p) => sum + (p.price * (p.qty || 1)), 0);
   cartCount.textContent = cart.reduce((n,p)=>n+(p.qty||1),0);
   cartTotal.textContent = total.toFixed(2);
   cartBar.classList.toggle("hidden", cart.length === 0);
+  saveCart();
 }
 
 async function initPi(){
@@ -116,7 +124,7 @@ function openCartReview(){
  return new Promise(resolve=>{
   const m=document.createElement("div");m.className="shipping-modal";
   const rows=cart.map((p,i)=>`<div class="cart-review-row">
-    <div><b>${p.name}</b><small>옵션: ${p.option||"기본"}</small></div>
+    <div><b>${p.name}</b><small>옵션: ${p.option||"기본"}</small><small class="cart-expire" data-exp="${Number(p.addedAt||Date.now())+CART_TTL_MS}">⏱ ${leftHms(Number(p.addedAt||Date.now())+CART_TTL_MS-Date.now())} 후 자동 삭제</small></div>
     <div class="qtyctl"><button data-i="${i}" data-d="-1">−</button><b>${p.qty||1}</b><button data-i="${i}" data-d="1">＋</button></div>
     <div>${(p.price*(p.qty||1)).toFixed(2)} π</div>
     <button class="delitem" data-del="${i}">삭제</button>
@@ -126,10 +134,11 @@ function openCartReview(){
    <div class="cart-review-total">상품 합계 <b>${total.toFixed(2)} π</b></div>
    <div class="shipping-actions"><button id="ccancel">계속 쇼핑</button><button id="corder">주문하기</button></div></div>`;
   document.body.appendChild(m);
-  m.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>{const i=+b.dataset.i,d=+b.dataset.d;cart[i].qty=Math.max(1,(cart[i].qty||1)+d);m.remove();updateCart();openCartReview().then(resolve)});
-  m.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{cart.splice(+b.dataset.del,1);m.remove();updateCart();if(cart.length)openCartReview().then(resolve);else resolve(false)});
-  m.querySelector("#ccancel").onclick=()=>{m.remove();resolve(false)};
-  m.querySelector("#corder").onclick=()=>{m.remove();resolve(true)};
+  const tick=setInterval(()=>{m.querySelectorAll(".cart-expire").forEach(el=>el.textContent=`⏱ ${leftHms(Number(el.dataset.exp)-Date.now())} 후 자동 삭제`);if(cart.some(x=>Date.now()-Number(x.addedAt||0)>=CART_TTL_MS)){clearInterval(tick);purgeExpiredCart();m.remove();updateCart();if(cart.length)openCartReview().then(resolve);else resolve(false)}},1000);
+  m.querySelectorAll("[data-d]").forEach(b=>b.onclick=()=>{clearInterval(tick);const i=+b.dataset.i,d=+b.dataset.d;cart[i].qty=Math.max(1,(cart[i].qty||1)+d);saveCart();m.remove();updateCart();openCartReview().then(resolve)});
+  m.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{clearInterval(tick);cart.splice(+b.dataset.del,1);saveCart();m.remove();updateCart();if(cart.length)openCartReview().then(resolve);else resolve(false)});
+  m.querySelector("#ccancel").onclick=()=>{clearInterval(tick);m.remove();resolve(false)};
+  m.querySelector("#corder").onclick=()=>{clearInterval(tick);m.remove();resolve(true)};
  });
 }
 
@@ -212,7 +221,7 @@ async function checkout(skipCartReview=false){
       onReadyForServerCompletion: async (paymentId, txid) => {
         try {
           await completePayment(paymentId, txid, orderId);
-          cart = [];
+          cart = []; saveCart();
           updateCart();
           toast(`Testnet 결제 완료: ${amount.toFixed(2)} π`);
         } finally {
@@ -252,9 +261,17 @@ async function openMyOrders(){
   const r=await fetch(`/api/orders/mine?uid=${encodeURIComponent(currentUser.uid)}`);const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||`HTTP ${r.status}`);
   const box=m.querySelector("#myOrders");
   if(!d.orders.length){box.innerHTML="<div>아직 주문내역이 없습니다.</div>";return}
-  box.innerHTML=d.orders.map(o=>`<div class="order-card"><div class="order-card-head"><b>${o.order_id}</b><span class="order-status">${statusKo(o.order_status)}</span></div><small>${fmtDate(o.ordered_at)} · ${Number(o.paid_total).toFixed(2)} π</small><div class="order-items">${(o.items||[]).map(i=>`${i.productName} × ${i.quantity} · ${(Number(i.unitPrice)*Number(i.quantity)).toFixed(2)} π`).join("<br>")}</div>${o.tracking_number?`<div class="order-meta">${o.courier||"택배"} · 송장 ${o.tracking_number}</div>`:""}<div class="order-meta">Payment ID: ${o.payment_id||"-"}<br>TXID: ${o.txid||"-"}</div></div>`).join("");
+  box.innerHTML=d.orders.map(o=>{const pending=o.order_status==="PENDING";const exp=new Date(o.pending_expires_at||new Date(new Date(o.ordered_at).getTime()+CART_TTL_MS)).getTime();const track=o.tracking_number?`<div class="order-meta">${o.courier||"택배"} · <button class="tracking-link" data-courier="${o.courier||""}" data-track="${o.tracking_number}">송장 ${o.tracking_number} 조회</button></div>`:"";const actions=`<div class="order-actions">${pending?`<button class="retry-pay" data-order="${o.order_id}">다시 결제하기</button>`:""}${o.order_status==="DELIVERED"?`<button class="confirm-buy" data-order="${o.order_id}">구매확정</button>`:""}</div>`;return `<div class="order-card"><div class="order-card-head"><b>${o.order_id}</b><span class="order-status">${statusKo(o.order_status)}</span></div><small>${fmtDate(o.ordered_at)} · ${Number(o.paid_total).toFixed(2)} π</small>${pending?`<div class="pending-timer" data-exp="${exp}">⏱ ${leftHms(exp-Date.now())} 후 자동 삭제됩니다</div>`:""}<div class="order-items">${(o.items||[]).map(i=>`${i.productName} × ${i.quantity} · ${(Number(i.unitPrice)*Number(i.quantity)).toFixed(2)} π`).join("<br>")}</div>${track}<div class="order-meta">Payment ID: ${o.payment_id||"-"}<br>TXID: ${o.txid||"-"}</div>${actions}</div>`}).join("");
+  const ot=setInterval(()=>box.querySelectorAll(".pending-timer").forEach(el=>{const left=Number(el.dataset.exp)-Date.now();el.textContent=`⏱ ${leftHms(left)} 후 자동 삭제됩니다`;if(left<=0){clearInterval(ot);m.remove();openMyOrders()}}),1000);
+  box.querySelectorAll(".retry-pay").forEach(b=>b.onclick=()=>retryOrderPayment(b.dataset.order));
+  box.querySelectorAll(".confirm-buy").forEach(b=>b.onclick=async()=>{await postJSON(`/api/orders/${encodeURIComponent(b.dataset.order)}/confirm`,{username:currentUser.username});m.remove();openMyOrders()});
+  box.querySelectorAll(".tracking-link").forEach(b=>b.onclick=()=>openTracking(b.dataset.courier,b.dataset.track));
  }catch(e){m.querySelector("#myOrders").innerHTML=`<div>주문내역을 불러오지 못했습니다.<br>${e.message}</div>`}
 }
+
+function trackingUrl(courier,no){const c=(courier||"").toLowerCase();const n=encodeURIComponent(no);if(c.includes("cj")||c.includes("대한통운"))return `https://trace.cjlogistics.com/next/tracking.html?wblNo=${n}`;if(c.includes("한진"))return `https://www.hanjin.com/kor/CMS/DeliveryMgr/WaybillResult.do?mession-val=${n}`;if(c.includes("롯데"))return `https://www.lotteglogis.com/home/reservation/tracking/linkView?InvNo=${n}`;if(c.includes("우체국"))return `https://service.epost.go.kr/trace.RetrieveDomRigiTraceList.comm?sid1=${n}`;return `https://search.naver.com/search.naver?query=${encodeURIComponent((courier||"택배")+" "+no)}`}
+function openTracking(courier,no){window.open(trackingUrl(courier,no),"_blank","noopener")}
+async function retryOrderPayment(orderId){if(!piReady||!currentUser)return toast("Pi 로그인이 필요합니다.");try{const r=await fetch(`/api/orders/${encodeURIComponent(orderId)}?uid=${encodeURIComponent(currentUser.uid)}`);const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||"주문 조회 실패");const o=d.order;if(o.order_status!=="PENDING")throw new Error("결제대기 주문이 아닙니다.");const fresh=await fetch('/api/products').then(x=>x.json());for(const it of o.items||[]){const p=(fresh.products||[]).find(x=>Number(x.id)===Number(it.product_id));if(!p||p.active===false||Number(p.stock)<Number(it.quantity))throw new Error(`${it.product_name} 상품의 판매상태 또는 재고를 확인해주세요.`)}Pi.createPayment({amount:Number(o.paid_total),memo:`Blog24 주문 ${orderId} 재결제`,metadata:{orderId,retry:true}},{onReadyForServerApproval:approvePayment,onReadyForServerCompletion:async(paymentId,txid)=>{await completePayment(paymentId,txid,orderId);toast("결제가 완료되었습니다.")},onCancel:()=>toast("결제가 취소되었습니다."),onError:e=>toast(`결제 오류: ${e?.message||"오류"}`)})}catch(e){toast(e.message)}}
 
 document.getElementById("shopBtn").addEventListener("click", () => {
   document.getElementById("products").scrollIntoView({ behavior: "smooth" });
@@ -345,15 +362,17 @@ updateTopCart();
 function renderCategoryNav(cats){const nav=document.querySelector('.store-nav');if(nav)nav.innerHTML='<button class="active" data-cat="전체">홈</button>'+cats.map(c=>`<button data-cat="${c}">${c}</button>`).join('');}
 function setupCategories(){document.querySelectorAll('.store-nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.store-nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');const c=b.dataset.cat||'전체';renderProducts(c==='전체'?products:products.filter(p=>p.category===c));});}
 function setupHero(){
- const track=document.querySelector('.hero-track');if(!track)return;let slides=[...track.querySelectorAll('.hero-slide')],i=0,timer=null,videoPlaying=false;
+ const track=document.querySelector('.hero-track');if(!track)return;let cfg=[];try{cfg=JSON.parse(storeSettings.slidesJson||'[]')}catch{};cfg=(cfg||[]).filter(x=>x.url).sort((a,b)=>(a.order||0)-(b.order||0));if(cfg.length){track.innerHTML=cfg.map(x=>{const y=youtubeEmbedUrl(x.url);if(y)return `<div class=\"hero-slide hero-video-slide dynamic-video\" data-y=\"${y}\"></div>`;return `<div class=\"hero-slide\"><img src=\"${x.url}\" alt=\"슬라이드 배너\"></div>`}).join('')}let slides=[...track.querySelectorAll('.hero-slide')],i=0,timer=null,videoPlaying=false;
+ track.querySelectorAll('.dynamic-video').forEach((d,k)=>{const id='heroDyn'+k,y=d.dataset.y;d.innerHTML=`<iframe id=\"${id}\" src=\"${y}${y.includes('?')?'&':'?'}enablejsapi=1\" title=\"메인 영상\" allow=\"autoplay; encrypted-media; picture-in-picture\" allowfullscreen></iframe>`});
  const yt=youtubeEmbedUrl(storeSettings.slideYoutube||'');
  if(yt){const d=document.createElement('div');d.className='hero-slide hero-video-slide';const id='heroYT';d.innerHTML=`<iframe id="${id}" src="${yt}${yt.includes('?')?'&':'?'}enablejsapi=1" title="메인 영상" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;track.appendChild(d);slides=[...track.querySelectorAll('.hero-slide')];setTimeout(()=>document.getElementById(id)?.contentWindow?.postMessage(JSON.stringify({event:'listening',id}),'*'),800)}
  const go=n=>{i=(n+slides.length)%slides.length;track.style.transform=`translateX(-${i*100}%)`};
  const stop=()=>{if(timer){clearInterval(timer);timer=null}};
- const start=()=>{stop();if(videoPlaying||slides.length<2)return;timer=setInterval(()=>go(i+1),5000)};
+ const start=()=>{stop();if(videoPlaying||slides.length<2)return;timer=setInterval(()=>go(i+1),Math.max(2,Number(storeSettings.slideTime)||5)*1000)};
  let sx=0,sy=0;track.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;stop()},{passive:true});track.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)){go(i+(dx<0?1:-1));videoPlaying=false;start()}else if(!videoPlaying)start()},{passive:true});
  window.addEventListener('message',e=>{try{const m=typeof e.data==='string'?JSON.parse(e.data):e.data;if(m?.event==='onStateChange'){if(m.info===1||m.info===2){videoPlaying=true;stop()}if(m.info===0){videoPlaying=false;start()}}}catch{}});start();
 }
+function renderHomeSections(){let cfg=[];try{cfg=JSON.parse(storeSettings.homeSectionsJson||'[]')}catch{};document.querySelectorAll('.managed-home-section').forEach(x=>x.remove());const base=document.getElementById('products');if(!base)return;(cfg||[]).sort((a,b)=>(a.order||0)-(b.order||0)).forEach(x=>{const sec=document.createElement('section');sec.className='section managed-home-section';if(x.type==='banner'){sec.innerHTML=`<img class="managed-banner" src="${x.title||''}" alt="메인 배너">`}else{const list=products.filter(p=>!x.category||p.category===x.category);sec.innerHTML=`<div class="section-title"><h2>${x.title||x.category||'상품'}</h2></div><div class="grid">${list.map(p=>`<article class="card" onclick="openProductDetail(${p.id})"><div class="product-img"><img src="${(p.images&&p.images[0])||'/images/sample-1.svg'}"></div><div class="card-body"><h3>${p.name}</h3><div class="price-row"><span class="price">${Number(p.price).toFixed(2)} π</span></div></div></article>`).join('')}</div>`}base.insertAdjacentElement('afterend',sec)})}
 function setupShorts(){const b=document.getElementById('quickShorts');if(!b)return;const u=storeSettings.shortsUrl||'';b.classList.toggle('hidden',!u);if(!u)return;let id='';try{const x=new URL(u);if(x.pathname.includes('/shorts/'))id=x.pathname.split('/shorts/')[1].split('/')[0];else id=x.searchParams.get('v')||''}catch{}if(id)b.innerHTML=`<img src="https://img.youtube.com/vi/${id}/hqdefault.jpg" alt="Shorts"><span>▶</span>`;b.onclick=()=>{const y=youtubeEmbedUrl(u);if(!y)return;const m=document.createElement('div');m.className='shorts-modal';m.innerHTML=`<div class="shorts-player"><button>✕</button><iframe src="${y}" allowfullscreen></iframe></div>`;document.body.appendChild(m);m.querySelector('button').onclick=()=>m.remove();};}
 
 // V1.6.9 install / footer / policy / lively Shorts
