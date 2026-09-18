@@ -12,14 +12,16 @@ const pool=process.env.DATABASE_URL?new Pool({connectionString:process.env.DATAB
 app.use(express.json());
 app.use(express.static(path.join(__dirname,"public")));
 
-const PRODUCTS=[
- {id:1,name:"Blog24 머그컵",price:1.2,shipping:0},
- {id:2,name:"Pi 데스크 패드",price:2.5,shipping:0},
- {id:3,name:"스마트 파우치",price:3.8,shipping:0},
- {id:4,name:"Blog24 노트",price:0.8,shipping:0},
- {id:5,name:"휴대폰 거치대",price:1.6,shipping:0},
- {id:6,name:"테스트 상품",price:0.1,shipping:0}
-];
+const DEFAULT_PRODUCTS=require("./public/default-products.json");
+async function effectiveProducts(){
+ if(!pool)return DEFAULT_PRODUCTS;
+ try{
+  const r=await pool.query("SELECT * FROM products ORDER BY sort_order,id");
+  if(!r.rows.length)return DEFAULT_PRODUCTS;
+  return r.rows.map(x=>({id:x.id,name:x.name,price:Number(x.price),shipping:Number(x.shipping||0),shippingText:x.shipping_text||'',category:x.category||'기타',desc:x.description||'',detail:x.detail||'',options:x.options||['기본'],images:x.images||[],detailImages:x.detail_images||[],youtube:x.youtube_url||'',active:x.active!==false,sortOrder:x.sort_order||x.id}));
+ }catch(e){console.error('products fallback',e.message);return DEFAULT_PRODUCTS}
+}
+async function effectiveProduct(id){return (await effectiveProducts()).find(x=>Number(x.id)===Number(id));}
 
 async function initDb(){
  if(!pool)return;
@@ -45,10 +47,18 @@ async function initDb(){
   refund_amount NUMERIC(18,7) NOT NULL,refund_wallet TEXT NOT NULL,reason TEXT,
   status TEXT NOT NULL DEFAULT 'REQUESTED',refund_txid TEXT,requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   approved_at TIMESTAMPTZ,refunded_at TIMESTAMPTZ);
+ CREATE TABLE IF NOT EXISTS products(
+  id INT PRIMARY KEY,name TEXT NOT NULL,price NUMERIC(18,7) NOT NULL DEFAULT 0,shipping NUMERIC(18,7) NOT NULL DEFAULT 0,
+  shipping_text TEXT,category TEXT,description TEXT,detail TEXT,options JSONB NOT NULL DEFAULT '["기본"]'::jsonb,
+  images JSONB NOT NULL DEFAULT '[]'::jsonb,detail_images JSONB NOT NULL DEFAULT '[]'::jsonb,youtube_url TEXT,
+  active BOOLEAN NOT NULL DEFAULT TRUE,sort_order INT NOT NULL DEFAULT 0,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+ CREATE TABLE IF NOT EXISTS store_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '',updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
  `);
  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS orderer_name TEXT");
  await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS orderer_phone TEXT");
  await pool.query("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_option TEXT");
+ const pc=Number((await pool.query("SELECT COUNT(*)::int n FROM products")).rows[0].n);
+ if(pc===0){for(const p of DEFAULT_PRODUCTS){await pool.query(`INSERT INTO products(id,name,price,shipping,shipping_text,category,description,detail,options,images,detail_images,youtube_url,active,sort_order) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14)`,[p.id,p.name,p.price,p.shipping,p.shippingText,p.category,p.desc,p.detail,JSON.stringify(p.options),JSON.stringify(p.images),JSON.stringify(p.detailImages),p.youtube,p.active,p.sortOrder])}}
  console.log("DB tables ready");
 }
 
@@ -83,6 +93,14 @@ async function piPost(ep,body){
  const t=await r.text();let d;try{d=t?JSON.parse(t):{}}catch{d={raw:t}}
  if(!r.ok){const e=new Error(d?.error||d?.message||`Pi API HTTP ${r.status}`);e.status=r.status;e.data=d;throw e}return d;
 }
+app.get("/api/products",async(req,res)=>{const products=(await effectiveProducts()).filter(x=>x.active!==false);res.json({ok:true,products});});
+app.get("/api/store-settings",async(req,res)=>{let settings={slideYoutube:"",shortsUrl:""};if(pool){try{const r=await pool.query("SELECT key,value FROM store_settings");for(const x of r.rows)settings[x.key]=x.value}catch{}}res.json({ok:true,settings});});
+app.get("/api/admin/products",needDb,needAdmin,async(req,res)=>res.json({ok:true,products:await effectiveProducts()}));
+app.post("/api/admin/products",needDb,needAdmin,async(req,res)=>{try{const p=req.body||{};const id=Number(p.id)||Number((await pool.query("SELECT COALESCE(MAX(id),0)+1 id FROM products")).rows[0].id);await pool.query(`INSERT INTO products(id,name,price,shipping,shipping_text,category,description,detail,options,images,detail_images,youtube_url,active,sort_order,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14,NOW()) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,price=EXCLUDED.price,shipping=EXCLUDED.shipping,shipping_text=EXCLUDED.shipping_text,category=EXCLUDED.category,description=EXCLUDED.description,detail=EXCLUDED.detail,options=EXCLUDED.options,images=EXCLUDED.images,detail_images=EXCLUDED.detail_images,youtube_url=EXCLUDED.youtube_url,active=EXCLUDED.active,sort_order=EXCLUDED.sort_order,updated_at=NOW()`,[id,p.name||'상품',Number(p.price)||0,Number(p.shipping)||0,p.shippingText||'',p.category||'기타',p.desc||'',p.detail||'',JSON.stringify(p.options||['기본']),JSON.stringify(p.images||[]),JSON.stringify(p.detailImages||[]),p.youtube||'',p.active!==false,Number(p.sortOrder)||id]);res.json({ok:true,id})}catch(e){res.status(500).json({ok:false,error:e.message})}});
+app.delete("/api/admin/products/:id",needDb,needAdmin,async(req,res)=>{await pool.query("DELETE FROM products WHERE id=$1",[Number(req.params.id)]);res.json({ok:true})});
+app.post("/api/admin/seed-products",needDb,needAdmin,async(req,res)=>{try{for(const p of DEFAULT_PRODUCTS){await pool.query(`INSERT INTO products(id,name,price,shipping,shipping_text,category,description,detail,options,images,detail_images,youtube_url,active,sort_order) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14) ON CONFLICT(id) DO NOTHING`,[p.id,p.name,p.price,p.shipping,p.shippingText,p.category,p.desc,p.detail,JSON.stringify(p.options),JSON.stringify(p.images),JSON.stringify(p.detailImages),p.youtube,p.active,p.sortOrder])}res.json({ok:true})}catch(e){res.status(500).json({ok:false,error:e.message})}});
+app.post("/api/admin/store-settings",needDb,needAdmin,async(req,res)=>{try{for(const [k,v] of Object.entries(req.body||{})){if(!['slideYoutube','shortsUrl'].includes(k))continue;await pool.query("INSERT INTO store_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()",[k,String(v||'')])}res.json({ok:true})}catch(e){res.status(500).json({ok:false,error:e.message})}});
+
 app.get("/health",(req,res)=>res.json({ok:true,app:"Blog24",network:"Pi Testnet",piApiConfigured:!!PI_API_KEY,databaseConfigured:!!pool}));
 
 app.post("/api/orders/draft",needDb,async(req,res)=>{
@@ -92,7 +110,7 @@ app.post("/api/orders/draft",needDb,async(req,res)=>{
    return res.status(400).json({ok:false,error:"주문/배송 정보가 부족합니다."});
   let itemTotal=0,shippingTotal=0; const verified=[];
   for(const x of items){
-   const p=PRODUCTS.find(v=>v.id===Number(x.id)); if(!p)return res.status(400).json({ok:false,error:"잘못된 상품입니다."});
+   const p=await effectiveProduct(Number(x.id)); if(!p||p.active===false)return res.status(400).json({ok:false,error:"잘못된 상품입니다."});
    const qty=Math.max(1,Math.min(99,Number(x.qty)||1)), option=String(x.option||"기본").slice(0,100);
    itemTotal+=p.price*qty; shippingTotal+=p.shipping*qty; verified.push({...p,qty,option});
   }

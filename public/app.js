@@ -1,19 +1,10 @@
-const products = [
-  { id: 1, name: "Blog24 머그컵", price: 1.2, icon: "☕", desc: "Blog24 데일리 머그", detail: "Blog24 로고 감성으로 가볍게 사용할 수 있는 데일리 머그컵입니다.", options: ["기본", "화이트", "퍼플"] },
-  { id: 2, name: "Pi 데스크 패드", price: 2.5, icon: "🖥️", desc: "책상을 깔끔하게 정리하는 패드", detail: "키보드와 마우스를 함께 올려두기 좋은 데스크 패드입니다.", options: ["기본", "소형", "대형"] },
-  { id: 3, name: "스마트 파우치", price: 3.8, icon: "🎒", desc: "작은 소지품을 담는 데일리 파우치", detail: "케이블, 충전기 등 작은 소지품을 정리하기 좋은 파우치입니다.", options: ["기본", "블랙", "퍼플"] },
-  { id: 4, name: "Blog24 노트", price: 0.8, icon: "📒", desc: "아이디어 기록용 노트", detail: "간단한 메모와 아이디어 기록에 적합한 Blog24 노트입니다.", options: ["기본"] },
-  { id: 5, name: "휴대폰 거치대", price: 1.6, icon: "📱", desc: "간편한 데스크용 거치대", detail: "책상 위에서 휴대폰을 편하게 세워둘 수 있는 거치대입니다.", options: ["기본"] },
-  { id: 6, name: "테스트 상품", price: 0.1, icon: "🧪", desc: "Pi Testnet 결제 테스트용", detail: "Pi Testnet 결제 흐름을 빠르게 확인하기 위한 테스트 상품입니다.", options: ["기본"] }
-];
-
-
-const V16_PRODUCT_MEDIA = {
-  1:{images:["/images/sample-1.svg","/images/sample-2.svg","/images/sample-3.svg"],youtube:"https://www.youtube.com/embed/dQw4w9WgXcQ",options:["화이트","블랙"]},
-  2:{images:["/images/sample-2.svg","/images/sample-3.svg","/images/sample-1.svg"],youtube:"",options:["기본"]},
-  3:{images:["/images/sample-3.svg","/images/sample-1.svg","/images/sample-2.svg"],youtube:"",options:["기본"]}
-};
-products.forEach(p=>Object.assign(p,V16_PRODUCT_MEDIA[p.id]||{images:["/images/sample-1.svg","/images/sample-2.svg","/images/sample-3.svg"],youtube:"",options:["기본"]}));
+let products = [];
+let storeSettings={slideYoutube:"",shortsUrl:""};
+async function loadStoreData(){
+ try{const [pr,sr]=await Promise.all([fetch('/api/products').then(r=>r.json()),fetch('/api/store-settings').then(r=>r.json())]);if(pr.ok)products=pr.products||[];if(sr.ok)storeSettings=sr.settings||storeSettings;}catch(e){console.error(e)}
+ renderProducts();setupCategories();setupHero();setupShorts();
+ const shared=Number(new URLSearchParams(location.search).get('product'));if(shared&&products.some(p=>p.id===shared))setTimeout(()=>openProductDetail(shared),250);
+}
 
 let cart = [];
 let piReady = false;
@@ -33,20 +24,8 @@ function toast(message){
   setTimeout(() => el.classList.remove("show"), 2400);
 }
 
-function renderProducts(){
-  grid.innerHTML = products.map(p => `
-    <article class="card" onclick="openProductDetail(${p.id})">
-      <div class="product-img"><img src="${(p.images&&p.images[0])||'/images/sample-1.svg'}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover"></div>
-      <div class="card-body">
-        <h3>${p.name}</h3>
-        <div class="desc">${p.desc}</div>
-        <div class="price-row">
-          <span class="price">${p.price.toFixed(2)} π</span>
-          <button class="add" onclick="event.stopPropagation(); addToCart(${p.id})">담기</button>
-        </div>
-      </div>
-    </article>
-  `).join("");
+function renderProducts(list=products){
+  grid.innerHTML = list.map(p => `<article class="card" onclick="openProductDetail(${p.id})"><div class="product-img"><img src="${(p.images&&p.images[0])||'/images/sample-1.svg'}" alt="${p.name}"></div><div class="card-body"><h3>${p.name}</h3><div class="desc">${p.desc||''}</div><div class="ship-badge">${Number(p.shipping||0)===0?'무료배송':`배송 ${Number(p.shipping).toFixed(2)} π`}</div><div class="price-row"><span class="price">${Number(p.price).toFixed(2)} π</span><button class="add" onclick="event.stopPropagation(); addToCart(${p.id})">담기</button></div></div></article>`).join("");
 }
 
 window.addToCart = function(id){
@@ -284,10 +263,8 @@ loginBtn.addEventListener("click", loginPi);
 document.getElementById("ordersBtn").addEventListener("click", openMyOrders);
 document.getElementById("checkoutBtn").addEventListener("click", checkout);
 
-renderProducts();
 initPi();
-const sharedProductId=Number(new URLSearchParams(location.search).get("product"));
-if(sharedProductId && products.some(p=>p.id===sharedProductId)) setTimeout(()=>openProductDetail(sharedProductId),250);
+loadStoreData();
 
 
 function youtubeEmbedUrl(url){
@@ -322,7 +299,7 @@ function openProductDetail(id){
  <h2>${p.name}</h2><p>${p.detail||p.desc||""}</p><b class="detail-price">${Number(p.price).toFixed(2)} π</b>
  <label>옵션<select id="detailOption">${(p.options||["기본"]).map(x=>`<option value="${x}">${x}</option>`).join("")}</select></label>
  <label>수량<div class="detail-qty"><button id="dqMinus">−</button><b id="dqValue">1</b><button id="dqPlus">＋</button></div></label>
- <div class="detail-actions"><button id="detailShare">상품 공유하기</button><button id="detailAdd">장바구니 담기</button></div>
+ ${(p.detailImages||[]).length?`<div class="detail-description-images">${p.detailImages.map(x=>`<img src="${x}" alt="${p.name} 상세설명">`).join("")}</div>`:""}<div class="detail-actions"><button id="detailShare">상품 공유하기</button><button id="detailAdd">장바구니 담기</button></div>
  </div>`;
  document.body.appendChild(m);let qty=1;
  const main=m.querySelector(".detail-main"),video=m.querySelector(".detail-video-main");
@@ -360,6 +337,7 @@ updateTopCart();
  if(window.visualViewport){visualViewport.addEventListener("resize",syncVisibleViewport,{passive:true});visualViewport.addEventListener("scroll",syncVisibleViewport,{passive:true});}
 })();
 
-// V1.6.6 store navigation / Shorts quick banner
-document.querySelectorAll('.store-nav button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.store-nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById('products')?.scrollIntoView({behavior:'smooth'});}));
-document.getElementById('quickShorts')?.addEventListener('click',()=>toast('쇼츠 URL 등록 시 이 퀵배너에서 바로 재생됩니다.'));
+// V1.6.7 store UI / category / banner / Shorts
+function setupCategories(){document.querySelectorAll('.store-nav button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.store-nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');const c=b.dataset.cat||'전체';renderProducts(c==='전체'?products:products.filter(p=>p.category===c));});}
+function setupHero(){const slides=[...document.querySelectorAll('.hero-slide')],yt=youtubeEmbedUrl(storeSettings.slideYoutube||'');if(yt){const d=document.createElement('div');d.className='hero-slide';d.innerHTML=`<iframe src="${yt}" title="메인 영상" allowfullscreen></iframe>`;document.querySelector('.hero-track')?.appendChild(d);slides.push(d)}let i=0;if(slides.length>1)setInterval(()=>{i=(i+1)%slides.length;document.querySelector('.hero-track').style.transform=`translateX(-${i*100}%)`;},5000);}
+function setupShorts(){const b=document.getElementById('quickShorts');if(!b)return;const u=storeSettings.shortsUrl||'';b.classList.toggle('hidden',!u);if(!u)return;b.onclick=()=>{const y=youtubeEmbedUrl(u);if(!y)return;const m=document.createElement('div');m.className='shorts-modal';m.innerHTML=`<div class="shorts-player"><button>✕</button><iframe src="${y}" allowfullscreen></iframe></div>`;document.body.appendChild(m);m.querySelector('button').onclick=()=>m.remove();};}
